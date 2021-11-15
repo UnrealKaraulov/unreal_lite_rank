@@ -1,0 +1,8 @@
+{
+    "sql_table": "table",
+    "sql_host": "host",
+    "sql_user": "user",
+    "sql_password": "password",
+    "sql_db": "db",
+    "save_type": "2"
+}
