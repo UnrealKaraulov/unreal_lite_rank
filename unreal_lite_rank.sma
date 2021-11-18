@@ -54,9 +54,13 @@ public plugin_init()    {
 	
 	register_clcmd("say /stats", 		"ClCmdStats");
 	register_clcmd("say /rank", 		"ClCmdStats");
-	
 	register_clcmd("say stats", 		"ClCmdStats");
 	register_clcmd("say rank", 		"ClCmdStats");
+	
+	/*register_clcmd("say /allstats", 		"ClCmdStatsAll");
+	register_clcmd("say /allrank", 		"ClCmdStatsAll");
+	register_clcmd("say allstats", 		"ClCmdStatsAll");
+	register_clcmd("say allrank", 		"ClCmdStatsAll");*/
 	
 	register_event("SendAudio", "win_t" , "a", "2&%!MRAD_terwin");
 	register_event("SendAudio", "win_ct", "a", "2&%!MRAD_ctwin");
@@ -109,11 +113,11 @@ public getPlayerScore(id)
 	return result_score;
 }
 
-public Float:getPlayerShotAccuracy(id)
+public getPlayerShotAccuracy(id)
 {
 	if (!is_user_valid(id) || !g_StatsActivated[id])
 	{
-		return 0.0;
+		return 0;
 	}
 	
 	new num_shots, num_shots_with_target;
@@ -127,14 +131,14 @@ public Float:getPlayerShotAccuracy(id)
 		num_shots_with_target += pp_get_number(id,g_sFormatString1);
 	}
 	
-	return float(num_shots_with_target) /  float(num_shots) * 100.0;
+	return floatround(float(num_shots_with_target) /  float(num_shots) * 100.0);
 }
 
-public Float:getPlayerHeadShotAccuracy(id)
+public getPlayerHeadShotAccuracy(id)
 {
 	if (!is_user_valid(id) || !g_StatsActivated[id])
 	{
-		return 0.0;
+		return 0;
 	}
 	
 	new num_shots, num_headshots;
@@ -148,7 +152,7 @@ public Float:getPlayerHeadShotAccuracy(id)
 		num_headshots += pp_get_number(id,g_sFormatString1);
 	}
 	
-	return float(num_headshots) /  float(num_shots) * 100.0;
+	return floatround(float(num_headshots) /  float(num_shots) * 100.0);
 }
 
 public ClCmdStats(id)
@@ -157,7 +161,7 @@ public ClCmdStats(id)
 	{
 		client_print_color(id, print_team_red, "^4[PATRIOT STATS]^3 PTS: ^4%i^3. yбийcтв: ^4%i^3. Cмepтeй: ^4%i^3. Xeдшoтoв: ^4%i^3. Пoбeд: ^4%i^3. Пopaжeний: ^4%i^3.", 
 												getPlayerScore(id), pp_get_number(id, "kill"),pp_get_number(id, "dead"),pp_get_number(id, "hs_kill"),pp_get_number(id, "win"),pp_get_number(id, "lose"));
-		client_print_color(id, print_team_red, "^4[PATRIOT STATS]^3 Тoчнocть пoпaдaний: ^4%f%%^3. Тoчнocть пoпaдaний в гoлoвy: ^4%f%%^3.", 
+		client_print_color(id, print_team_red, "^4[PATRIOT STATS]^3 Пoмoг yбить ^4%i%%^3 врагов. Тoчнocть пoпaдaний ^4%i%%^3. Тoчнocть пoпaдaний в гoлoвy ^4%i%%^3.", pp_get_number(id, "assist"),
 												getPlayerShotAccuracy(id), getPlayerHeadShotAccuracy(id));
 	}
 	else 
@@ -264,10 +268,11 @@ public round_begin()
 		
 		if (g_StatsActivated[id])
 		{
-			new val = pp_get_number(id, "rounds");
+			/*new val = pp_get_number(id, "rounds");
 			val++;
 			pp_set_number(id,"rounds",val);
-			
+			wins+loses=rounds
+			*/
 			if (g_RoundTime != -1.0)
 			{
 				new Float:fval = pp_get_float(id, "r_time");
@@ -291,6 +296,9 @@ public client_disconnected(id)
 			arrayset(g_iPlayerData[i], 0, MEHp);
 		}
 	}
+	
+	if (task_exists(id))
+		remove_task(id);
 }
 
 public client_putinserver(id)
@@ -307,11 +315,6 @@ public client_putinserver(id)
 
 public player_join_event(id)
 {
-	if (!g_StatsActivated[id])
-	{
-		return;
-	}
-	
 	for (new i = 0; i < WEAPONS_END;i++)
 	{
 		weaponsAmmo[id][i] = -1;
@@ -325,30 +328,31 @@ public player_join_event(id)
 		get_user_name(id,playername,charsmax(playername));
 		client_print_color(0, print_team_red, "^4[PATRIOT STATS]^3 Пpивeтcтвyeм нoвoгo бoйцa ^4%s^3!", playername);
 	}
-	
-	new last_time = pp_get_number(id,"last"), minutes = 0, hours = 0, days = 0;
-	if (last_time > 0)
+	else 
 	{
-		last_time = get_systime() - last_time;
-		
-		while (last_time >= 60) {
-			last_time -= 60;
-			minutes++;
-		}
+		new last_time = pp_get_number(id,"last"), minutes = 0, hours = 0, days = 0;
+		if (last_time != 0)
+		{
+			last_time = get_systime() - last_time;
+			
+			while (last_time >= 60) {
+				last_time -= 60;
+				minutes++;
+			}
 
-		while (minutes >= 60) {
-			minutes -= 60;
-			hours++;
+			while (minutes >= 60) {
+				minutes -= 60;
+				hours++;
+			}
+			
+			while (hours >= 24) {
+				hours -= 24;
+				days++;
+			}
+			
+			client_print_color(id, print_team_red, "^4[PATRIOT STATS]^3 Пpивeтcтвyeм cнoвa, вac нe былo ^4%i^3 днeй ^4%i^3 чacoв ^4%i^3 минyт и %i ^4ceкyнд^3!",days, hours, minutes, last_time);
 		}
-		
-		while (hours >= 24) {
-			hours -= 24;
-			days++;
-		}
-		
-		client_print_color(id, print_team_red, "^4[PATRIOT STATS]^3 Пpивeтcтвyeм cнoвa, вac нe былo ^4%i^3 днeй ^4%i^3 чacoв ^4%i^3 минyт и %i ^4ceкyнд^3!",days, hours, minutes, last_time);
 	}
-	
 	pp_set_number(id,"last", get_systime());
 
 }
@@ -357,8 +361,6 @@ public player_loaded(const id)
 {
 	if (!g_StatsActivated[id])
 	{
-		if (task_exists(id))
-			remove_task(id);
 		set_task(2.0, "player_join_event", id);
 	}
 	g_StatsActivated[id] = true;
@@ -366,6 +368,8 @@ public player_loaded(const id)
 
 public player_unloaded(const id)
 {
+	if (task_exists(id))
+		remove_task(id);
 	g_StatsActivated[id] = false;
 }
 
@@ -433,10 +437,11 @@ public client_damage(attacker, victim, damage, wpnindex, hitplace, TA)
 
 public client_death(killer, victim, wpnindex, hitplace, TK)
 {
+	new val = 0;
 	if (is_user_valid(killer) && g_StatsActivated[killer])
 	{
 		formatex(g_sFormatString1, charsmax(g_sFormatString1), "w%i_k", wpnindex);
-		new val = pp_get_number(killer,g_sFormatString1);
+		val = pp_get_number(killer,g_sFormatString1);
 		val++;
 		pp_set_number(killer,g_sFormatString1,val);
 		
@@ -460,7 +465,7 @@ public client_death(killer, victim, wpnindex, hitplace, TK)
 	
 	if (is_user_valid(victim) && g_StatsActivated[victim])
 	{
-		new val = pp_get_number(victim, "dead");
+		val = pp_get_number(victim, "dead");
 		val++;
 		pp_set_number(victim,"dead",val);
 	}
@@ -479,6 +484,17 @@ public client_death(killer, victim, wpnindex, hitplace, TK)
 	{
 		ClCmdHP(victim);
 		ClCmdME(victim);
+	}
+	
+	for(new i = 1; i <= MAX_PLAYERS;i++)
+	{
+		if (i != killer && g_iPlayerData[i][ME_victim] == victim && 
+			g_StatsActivated[i])
+		{
+			val = pp_get_number(killer, "assist");
+			val++;
+			pp_set_number(killer,"assist",val);
+		}
 	}
 }
 
