@@ -168,6 +168,7 @@ public plugin_natives() {
 	register_native("pp_set_bool", "native_set_bool");
 	register_native("pp_set_string", "native_set_string");
 	
+	register_native("pp_clear", "native_clear");
 	
 	register_native("pp_has_key_global", "native_has_key_global");
 
@@ -390,6 +391,25 @@ public native_set_string(plugin, argc)  {
 	return retval;
 }
 
+public native_clear(plugin, argc)  {
+	enum    {
+		arg_player = 1
+	};
+	CHECK_NATIVE_ARGS_NUM(argc, 1, 0)
+
+	new id = get_param(arg_player);
+	CHECK_NATIVE_PLAYER(id, 0)
+
+	
+	json_free(g_jObject[id]);
+	g_jObject[id] = Invalid_JSON;
+	TrieDestroy(g_tPlayerPreferences[id]);
+	
+	g_jObject[id] = json_init_object();
+	g_tPlayerPreferences[id] = TrieCreate();
+	
+	return PLUGIN_HANDLED;
+}
 
 public bool: native_has_key_global(plugin, argc) {
 	enum    {

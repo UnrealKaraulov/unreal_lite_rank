@@ -36,6 +36,20 @@ forward player_key_changed(const id, const key[]);
  */
 native bool: pp_has_key(const id, const key[]);
 
+
+
+/**
+ * Clear all data for player.
+ *
+ * @param id                Client index
+ *
+ * @return                  nothing
+ * @error                   If the index is not within the range of 1 to MaxClients,
+ *                          an error will be thrown.
+ */
+native pp_clear(const id);
+
+
 /**
  * Gets the value of the specified key set to the player as string.
  *
@@ -143,119 +157,92 @@ native Float: pp_get_float(const id, const key[], const Float:defaultValue = 0.0
 native pp_set_float(const id, const key[], const Float:value);
 
 /**
- * Checks if the specified key for player exists.
+ * Checks if the specified key exists.
  *
- * @param id                Client index
  * @param key               Unique key to which the value will be set
  *
  * @return                  true on success, false otherwise
- * @error                   If the index is not within the range of 1 to MaxClients,
- *                          an error will be thrown.
  */
 native bool: pp_has_key_global(const key[]);
 
 /**
- * Gets the value of the specified key set to the player as string.
+ * Gets the value of the specified key as string.
  *
- * @param id                Client index
  * @param key               Unique key to search for
  * @param dest              Buffer to copy value to
  * @param length            Maximum buffer size
  * @param defaultValue      Default value to set if key wasn't found
  *
  * @return                  Key's value set to the player or defaultValue if key wasn't found
- * @error                   If the index is not within the range of 1 to MaxClients
- *                          or an invalid number of arguments is set, an error will be thrown.
  */
 native pp_get_string_global(const key[], dest[], const length, const defaultValue[] = "");
 
 /**
- * Sets a string value for a player for the specified key.
+ * Sets a string value for specified key.
  *
- * @param id                Client index
  * @param key               Unique key to set the value to
  * @param value             Value to set
  *
  * @return                  1 on success, 0 otherwise
- * @error                   If the index is not within the range of 1 to MaxClients
- *                          or an invalid number of arguments is set, an error will be thrown.
  */
 native pp_set_string_global(const key[], const value[]);
 
 /**
- * Gets the value of the specified key set to the player as integer.
+ * Gets the value of the specified key as integer.
  *
- * @param id                Client index
  * @param key               Unique key to search for
  * @param defaultValue      Default value to set if key wasn't found
  *
  * @return                  Key's value set to the player or defaultValue if key wasn't found
- * @error                   If the index is not within the range of 1 to MaxClients
- *                          or an invalid number of arguments is set, an error will be thrown.
  */
 native pp_get_number_global(const key[], const defaultValue = 0);
 
 /**
- * Sets an integer value for a player for the specified key.
+ * Sets an integer value for specified key.
  *
- * @param id                Client index
  * @param key               Unique key to set the value to
  * @param value             Value to set
  *
  * @return                  1 on success, 0 otherwise
- * @error                   If the index is not within the range of 1 to MaxClients
- *                          or an invalid number of arguments is set, an error will be thrown.
  */
 native pp_set_number_global(const key[], const value);
 
 /**
- * Gets the value of the specified key set to the player as boolean.
+ * Gets the value of the specified key as boolean.
  *
- * @param id                Client index
  * @param key               Unique key to search for
  * @param defaultValue      Default value to set if key wasn't found
  *
  * @return                  Key's value set to the player or defaultValue if key wasn't found
- * @error                   If the index is not within the range of 1 to MaxClients
- *                          or an invalid number of arguments is set, an error will be thrown.
  */
 native bool: pp_get_bool_global(const key[], const bool:defaultValue = false);
 
 /**
- * Sets a boolean value for a player for the specified key.
+ * Sets a boolean value for specified key.
  *
- * @param id                Client index
  * @param key               Unique key to set the value to
  * @param value             Value to set
  *
  * @return                  1 on success, 0 otherwise
- * @error                   If the index is not within the range of 1 to MaxClients
- *                          or an invalid number of arguments is set, an error will be thrown.
  */
 native pp_set_bool_global(const key[], const bool:value);
 
 /**
- * Gets the value of the specified key set to the player as float.
+ * Gets the value of the specified key as float.
  *
- * @param id                Client index
  * @param key               Unique key to search for
  * @param defaultValue      Default value to set if key wasn't found
  *
  * @return                  Key's value set to the player or defaultValue if key wasn't found
- * @error                   If the index is not within the range of 1 to MaxClients
- *                          or an invalid number of arguments is set, an error will be thrown.
  */
 native Float: pp_get_float_global(const key[], const Float:defaultValue = 0.0);
 
 /**
- * Sets a float value for a player for the specified key.
+ * Sets a float value for specified key.
  *
- * @param id                Client index
  * @param key               Unique key to set the value to
  * @param value             Value to set
  *
  * @return                  1 on success, 0 otherwise
- * @error                   If the index is not within the range of 1 to MaxClients
- *                          or an invalid number of arguments is set, an error will be thrown.
  */
 native pp_set_float_global(const key[], const Float:value);
