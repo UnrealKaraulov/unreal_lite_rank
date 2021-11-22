@@ -650,11 +650,12 @@ save_values(const id)  {
 		return;
 	}
 
+	/*
 	if (json_serial_size(g_jObject[id]) < 3)  {
 		ChallengeClear(id);
 		return;
 	}
-	
+	*/
 	if (id == 0)
 	{
 		json_serial_to_string(g_jObject[id], jsonDataBuffer, charsmax(jsonDataBuffer));
