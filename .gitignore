@@ -153,3 +153,5 @@ include/VtcApi.inc
 include/wallhack_viewer.inc
 include/xredirect.inc
 include/xs.inc
+amxmodx_version.inc
+compiled/demo_recorder_no_userinfo.amxx

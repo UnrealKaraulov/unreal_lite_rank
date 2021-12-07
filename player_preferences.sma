@@ -6,10 +6,10 @@
 
 new bool: DEBUG = false;
 
-public stock const PluginName[] = "Player preferences";
-public stock const PluginVersion[] = "1.0.9";
-public stock const PluginAuthor[] = "GM-X Team, cpctrl, karaulov";
-public stock const PluginURL[] = "https://goldsrc.ru/members/3085/";
+public const PluginName[] = "Player preferences";
+public const PluginVersion[] = "1.0.9";
+public const PluginAuthor[] = "GM-X Team, cpctrl, karaulov";
+public const PluginURL[] = "https://goldsrc.ru/members/3085/";
 
 #define CHECK_NATIVE_ARGS_NUM(%1,%2,%3) \
 	if (%1 < %2) { \
@@ -19,16 +19,21 @@ public stock const PluginURL[] = "https://goldsrc.ru/members/3085/";
 
 #define CHECK_NATIVE_PLAYER(%1,%2) \
 	if (!g_bConnected[%1]) { \
-		DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "Invalid player %d", %1); \
+		DEBUG && !(is_user_bot(%1) || is_user_hltv(%1)) && log_to_file("PLAYER_PREF_DEBUG.log", "Invalid player %d", %1); \
 		return %2; \
+	}
+	
+#define CHECK_PLAYER(%1) \
+	if (!g_bConnected[%1]) { \
+		DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "Invalid player for save %d", %1); \
 	}
 
 const MAX_KEY_LENGTH = 256;
 const MAX_VALUE_STRING_LENGTH = 1024;
 const MAX_DATA_BUFFER = 102400; // 100KB
 
-new queryBuffer[MAX_DATA_BUFFER], jsonDataBuffer[MAX_DATA_BUFFER];
-
+new g_sTmpBuf[MAX_DATA_BUFFER], g_sJsonDataBuf[MAX_DATA_BUFFER];
+new g_sTmpKey[MAX_KEY_LENGTH];
 
 enum sqlx_e {
 	table[32],
@@ -41,7 +46,8 @@ enum sqlx_e {
 enum fwdStruct  {
 	Fwd_Loaded,
 	Fwd_UnLoaded,
-	Fwd_KeyChanged
+	Fwd_KeyChanged,
+	Fwd_PreSaving
 };
 
 new g_eForwards[fwdStruct];
@@ -49,41 +55,43 @@ new g_eForwards[fwdStruct];
 new Handle: g_hTuple;
 new dbdata[sqlx_e];
 
-new bool: g_bConnected[MAX_PLAYERS + 1];
+new bool: g_bConnected[MAX_PLAYERS + 1] = {false,...};
 new Trie: g_tPlayerPreferences[MAX_PLAYERS + 1];
-new JSON: g_jObject[MAX_PLAYERS + 1];
+new JSON: g_jObject[MAX_PLAYERS + 1] = {Invalid_JSON,...};
 new g_iSaveType = 0;
 
-public plugin_init()    {
+public plugin_init()    
+{
 	register_plugin(PluginName, PluginVersion, PluginAuthor);
 
 	g_eForwards[Fwd_Loaded] = CreateMultiForward("player_loaded", ET_IGNORE, FP_CELL);
 	g_eForwards[Fwd_UnLoaded] = CreateMultiForward("player_unloaded", ET_IGNORE, FP_CELL);
 	g_eForwards[Fwd_KeyChanged] = CreateMultiForward("player_key_changed", ET_IGNORE, FP_CELL, FP_STRING);
+	g_eForwards[Fwd_PreSaving] = CreateMultiForward("player_save", ET_IGNORE, FP_CELL);
 
 	read_json();
-	
-	if (bool: (plugin_flags() & AMX_FLAG_DEBUG))
-		DEBUG = true;
 	
 	sql_test_init();
 	load_player(0);
 }
 
-public read_json()   {
+public read_json()   
+{
 	new filePath[PLATFORM_MAX_PATH];
 	get_localinfo("amxx_configsdir", filePath, charsmax(filePath));
 
 	add(filePath, charsmax(filePath), "/preferences.json");
 
-	if (!file_exists(filePath)) {
+	if (!file_exists(filePath)) 
+	{
 		set_fail_state("Configuration file '%s' not found", filePath);
 		return;
 	}
 
 	new JSON: config = json_parse(filePath, true);
 
-	if (config == Invalid_JSON)    {
+	if (config == Invalid_JSON)    
+	{
 		set_fail_state("Configuration file '%s' read error", filePath);
 		return;
 	}
@@ -114,7 +122,8 @@ public read_json()   {
 
 }
 
-public sql_test_init() {
+public sql_test_init() 
+{
 	new Handle: sConnection;
 
 	g_hTuple = SQL_MakeDbTuple(
@@ -127,7 +136,8 @@ public sql_test_init() {
 	new errCode, error[512];
 	sConnection = SQL_Connect(g_hTuple, errCode, error, charsmax(error));
 
-	if (sConnection == Empty_Handle)    {
+	if (sConnection == Empty_Handle)    
+	{
 		SQL_FreeHandle(g_hTuple);
 		g_hTuple = Empty_Handle;
 
@@ -155,7 +165,8 @@ public sql_test_init() {
 	SQL_FreeHandle(sConnection);
 }
 
-public plugin_natives() {
+public plugin_natives() 
+{
 	register_native("pp_has_key", "native_has_key");
 
 	register_native("pp_get_number", "native_get_number");
@@ -183,8 +194,10 @@ public plugin_natives() {
 	register_native("pp_set_string_global", "native_set_string_global");
 }
 
-public bool: native_has_key(plugin, argc) {
-	enum    {
+public bool: native_has_key(plugin, argc) 
+{
+	enum    
+	{
 		arg_player = 1,
 		arg_key
 	};
@@ -194,14 +207,15 @@ public bool: native_has_key(plugin, argc) {
 	new id = get_param(arg_player);
 	CHECK_NATIVE_PLAYER(id, false)
 
-	new key[MAX_KEY_LENGTH];
-	get_string(arg_key, key, charsmax(key));
+	get_string(arg_key, g_sTmpKey, charsmax(g_sTmpKey));
 
-	return TrieKeyExists(g_tPlayerPreferences[id], key);
+	return TrieKeyExists(g_tPlayerPreferences[id], g_sTmpKey);
 }
 
-public native_get_number(plugin, argc)  {
-	enum    {
+public native_get_number(plugin, argc)  
+{
+	enum    
+	{
 		arg_player = 1,
 		arg_key,
 		arg_default
@@ -212,21 +226,23 @@ public native_get_number(plugin, argc)  {
 	new id = get_param(arg_player);
 	CHECK_NATIVE_PLAYER(id, 0)
 
-	new key[MAX_KEY_LENGTH];
-	get_string(arg_key, key, charsmax(key));
+	get_string(arg_key, g_sTmpKey, charsmax(g_sTmpKey));
 
-	if (!TrieKeyExists(g_tPlayerPreferences[id], key))  {
+	if (!TrieKeyExists(g_tPlayerPreferences[id], g_sTmpKey))  
+	{
 		return argc >= arg_default ? get_param(arg_default) : 0;
 	}
 
 	new value;
-	TrieGetCell(g_tPlayerPreferences[id], key, value);
+	TrieGetCell(g_tPlayerPreferences[id], g_sTmpKey, value);
 
 	return value;
 }
 
-public Float: native_get_float(plugin, argc)  {
-	enum    {
+public Float: native_get_float(plugin, argc)  
+{
+	enum    
+	{
 		arg_player = 1,
 		arg_key,
 		arg_default
@@ -237,21 +253,23 @@ public Float: native_get_float(plugin, argc)  {
 	new id = get_param(arg_player);
 	CHECK_NATIVE_PLAYER(id, 0.0)
 
-	new key[MAX_KEY_LENGTH];
-	get_string(arg_key, key, charsmax(key));
+	get_string(arg_key, g_sTmpKey, charsmax(g_sTmpKey));
 
-	if (!TrieKeyExists(g_tPlayerPreferences[id], key))  {
+	if (!TrieKeyExists(g_tPlayerPreferences[id], g_sTmpKey))  
+	{
 		return argc >= arg_default ? get_param_f(arg_default) : 0.0;
 	}
 
 	new value;
-	TrieGetCell(g_tPlayerPreferences[id], key, value);
+	TrieGetCell(g_tPlayerPreferences[id], g_sTmpKey, value);
 
 	return float(value);
 }
 
-public bool: native_get_bool(plugin, argc)  {
-	enum    {
+public bool: native_get_bool(plugin, argc)  
+{
+	enum    
+	{
 		arg_player = 1,
 		arg_key,
 		arg_default
@@ -262,21 +280,23 @@ public bool: native_get_bool(plugin, argc)  {
 	new id = get_param(arg_player);
 	CHECK_NATIVE_PLAYER(id, false)
 
-	new key[MAX_KEY_LENGTH];
-	get_string(arg_key, key, charsmax(key));
+	get_string(arg_key, g_sTmpKey, charsmax(g_sTmpKey));
 
-	if (!TrieKeyExists(g_tPlayerPreferences[id], key))  {
+	if (!TrieKeyExists(g_tPlayerPreferences[id], g_sTmpKey))  
+	{
 		return bool: (argc >= arg_default ? get_param(arg_default) : 0);
 	}
 
 	new value;
-	TrieGetCell(g_tPlayerPreferences[id], key, value);
+	TrieGetCell(g_tPlayerPreferences[id], g_sTmpKey, value);
 
 	return bool: value;
 }
 
-public native_get_string(plugin, argc)  {
-	enum    {
+public native_get_string(plugin, argc)  
+{
+	enum    
+	{
 		arg_player = 1,
 		arg_key,
 		arg_dest,
@@ -289,12 +309,13 @@ public native_get_string(plugin, argc)  {
 	new id = get_param(arg_player);
 	CHECK_NATIVE_PLAYER(id, 0)
 
-	new key[MAX_KEY_LENGTH], value[MAX_VALUE_STRING_LENGTH];
+	new value[MAX_VALUE_STRING_LENGTH];
 
-	get_string(arg_key, key, charsmax(key));
+	get_string(arg_key, g_sTmpKey, charsmax(g_sTmpKey));
 
-	if (TrieKeyExists(g_tPlayerPreferences[id], key))  {
-		TrieGetString(g_tPlayerPreferences[id], key, value, charsmax(value));
+	if (TrieKeyExists(g_tPlayerPreferences[id], g_sTmpKey))  
+	{
+		TrieGetString(g_tPlayerPreferences[id], g_sTmpKey, value, charsmax(value));
 	}
 	else if (argc >= arg_default)  {
 		get_string(arg_default, value, charsmax(value));
@@ -303,8 +324,10 @@ public native_get_string(plugin, argc)  {
 	return set_string(arg_dest, value, get_param(arg_length));
 }
 
-public native_set_number(plugin, argc)  {
-	enum    {
+public native_set_number(plugin, argc)  
+{
+	enum    
+	{
 		arg_player = 1,
 		arg_key,
 		arg_value
@@ -315,18 +338,19 @@ public native_set_number(plugin, argc)  {
 	new id = get_param(arg_player);
 	CHECK_NATIVE_PLAYER(id, 0)
 
-	new key[MAX_KEY_LENGTH];
-	get_string(arg_key, key, charsmax(key));
+	get_string(arg_key, g_sTmpKey, charsmax(g_sTmpKey));
 
 	new value = get_param(arg_value);
-	TrieSetCell(g_tPlayerPreferences[id], key, value);
-	json_object_set_number(g_jObject[id],key,value);
-	new retval = setValue(id, key);
+	TrieSetCell(g_tPlayerPreferences[id], g_sTmpKey, value);
+	json_object_set_number(g_jObject[id],g_sTmpKey,value);
+	new retval = setValue(id, g_sTmpKey);
 	return retval;
 }
 
-public native_set_bool(plugin, argc)  {
-	enum    {
+public native_set_bool(plugin, argc)  
+{
+	enum    
+	{
 		arg_player = 1,
 		arg_key,
 		arg_value
@@ -336,19 +360,20 @@ public native_set_bool(plugin, argc)  {
 
 	new id = get_param(arg_player);
 	CHECK_NATIVE_PLAYER(id, 0)
-
-	new key[MAX_KEY_LENGTH];
-	get_string(arg_key, key, charsmax(key));
+	
+	get_string(arg_key, g_sTmpKey, charsmax(g_sTmpKey));
 
 	new bool: value = bool: get_param(arg_value);
-	TrieSetCell(g_tPlayerPreferences[id], key, value ? 1 : 0);
-	json_object_set_bool(g_jObject[id],key,value);
-	new retval = setValue(id, key);
+	TrieSetCell(g_tPlayerPreferences[id], g_sTmpKey, value ? 1 : 0);
+	json_object_set_bool(g_jObject[id],g_sTmpKey,value);
+	new retval = setValue(id, g_sTmpKey);
 	return retval;
 }
 
-public native_set_float(plugin, argc)  {
-	enum    {
+public native_set_float(plugin, argc)  
+{
+	enum    
+	{
 		arg_player = 1,
 		arg_key,
 		arg_value
@@ -359,18 +384,19 @@ public native_set_float(plugin, argc)  {
 	new id = get_param(arg_player);
 	CHECK_NATIVE_PLAYER(id, 0)
 
-	new key[MAX_KEY_LENGTH];
-	get_string(arg_key, key, charsmax(key));
+	get_string(arg_key, g_sTmpKey, charsmax(g_sTmpKey));
 
 	new Float: value = get_param_f(arg_value);
-	TrieSetCell(g_tPlayerPreferences[id], key, value);
-	json_object_set_number(g_jObject[id],key,cell: value);
-	new retval = setValue(id, key);
+	TrieSetCell(g_tPlayerPreferences[id], g_sTmpKey, value);
+	json_object_set_number(g_jObject[id],g_sTmpKey,cell:value);
+	new retval = setValue(id, g_sTmpKey);
 	return retval;
 }
 
-public native_set_string(plugin, argc)  {
-	enum    {
+public native_set_string(plugin, argc)  
+{
+	enum    
+	{
 		arg_player = 1,
 		arg_key,
 		arg_value
@@ -381,18 +407,20 @@ public native_set_string(plugin, argc)  {
 	new id = get_param(arg_player);
 	CHECK_NATIVE_PLAYER(id, 0)
 
-	new key[MAX_KEY_LENGTH], value[MAX_VALUE_STRING_LENGTH];
-	get_string(arg_key, key, charsmax(key));
-	get_string(arg_value, key, charsmax(key));
+	new value[MAX_VALUE_STRING_LENGTH];
+	get_string(arg_key, g_sTmpKey, charsmax(g_sTmpKey));
+	get_string(arg_value, g_sTmpKey, charsmax(g_sTmpKey));
 
-	TrieSetString(g_tPlayerPreferences[id], key, value);
-	json_object_set_string(g_jObject[id],key,cell: value);
-	new retval = setValue(id, key);
+	TrieSetString(g_tPlayerPreferences[id], g_sTmpKey, value);
+	json_object_set_string(g_jObject[id],g_sTmpKey,cell: value);
+	new retval = setValue(id, g_sTmpKey);
 	return retval;
 }
 
-public native_clear(plugin, argc)  {
-	enum    {
+public native_clear(plugin, argc)  
+{
+	enum    
+	{
 		arg_player = 1
 	};
 	CHECK_NATIVE_ARGS_NUM(argc, 1, 0)
@@ -411,8 +439,10 @@ public native_clear(plugin, argc)  {
 	return PLUGIN_HANDLED;
 }
 
-public bool: native_has_key_global(plugin, argc) {
-	enum    {
+public bool: native_has_key_global(plugin, argc) 
+{
+	enum    
+	{
 		arg_key = 1
 	};
 
@@ -421,14 +451,15 @@ public bool: native_has_key_global(plugin, argc) {
 	new id = 0;
 	CHECK_NATIVE_PLAYER(id, false)
 
-	new key[MAX_KEY_LENGTH];
-	get_string(arg_key, key, charsmax(key));
+	get_string(arg_key, g_sTmpKey, charsmax(g_sTmpKey));
 
-	return TrieKeyExists(g_tPlayerPreferences[id], key);
+	return TrieKeyExists(g_tPlayerPreferences[id], g_sTmpKey);
 }
 
-public native_get_number_global(plugin, argc)  {
-	enum    {
+public native_get_number_global(plugin, argc)  
+{
+	enum    
+	{
 		arg_key = 1,
 		arg_default
 	};
@@ -438,21 +469,23 @@ public native_get_number_global(plugin, argc)  {
 	new id = 0;
 	CHECK_NATIVE_PLAYER(id, 0)
 
-	new key[MAX_KEY_LENGTH];
-	get_string(arg_key, key, charsmax(key));
+	get_string(arg_key, g_sTmpKey, charsmax(g_sTmpKey));
 
-	if (!TrieKeyExists(g_tPlayerPreferences[id], key))  {
+	if (!TrieKeyExists(g_tPlayerPreferences[id], g_sTmpKey))  
+	{
 		return argc >= arg_default ? get_param(arg_default) : 0;
 	}
 
 	new value;
-	TrieGetCell(g_tPlayerPreferences[id], key, value);
+	TrieGetCell(g_tPlayerPreferences[id], g_sTmpKey, value);
 
 	return value;
 }
 
-public Float: native_get_float_global(plugin, argc)  {
-	enum    {
+public Float: native_get_float_global(plugin, argc)  
+{
+	enum    
+	{
 		arg_key = 1,
 		arg_default
 	};
@@ -462,21 +495,23 @@ public Float: native_get_float_global(plugin, argc)  {
 	new id = 0;
 	CHECK_NATIVE_PLAYER(id, 0.0)
 
-	new key[MAX_KEY_LENGTH];
-	get_string(arg_key, key, charsmax(key));
+	get_string(arg_key, g_sTmpKey, charsmax(g_sTmpKey));
 
-	if (!TrieKeyExists(g_tPlayerPreferences[id], key))  {
+	if (!TrieKeyExists(g_tPlayerPreferences[id], g_sTmpKey))  
+	{
 		return argc >= arg_default ? get_param_f(arg_default) : 0.0;
 	}
 
 	new value;
-	TrieGetCell(g_tPlayerPreferences[id], key, value);
+	TrieGetCell(g_tPlayerPreferences[id], g_sTmpKey, value);
 
 	return float(value);
 }
 
-public bool: native_get_bool_global(plugin, argc)  {
-	enum    {
+public bool: native_get_bool_global(plugin, argc)  
+{
+	enum    
+	{
 		arg_key = 1,
 		arg_default
 	};
@@ -486,21 +521,23 @@ public bool: native_get_bool_global(plugin, argc)  {
 	new id = 0;
 	CHECK_NATIVE_PLAYER(id, false)
 
-	new key[MAX_KEY_LENGTH];
-	get_string(arg_key, key, charsmax(key));
+	get_string(arg_key, g_sTmpKey, charsmax(g_sTmpKey));
 
-	if (!TrieKeyExists(g_tPlayerPreferences[id], key))  {
+	if (!TrieKeyExists(g_tPlayerPreferences[id], g_sTmpKey))  
+	{
 		return bool: (argc >= arg_default ? get_param(arg_default) : 0);
 	}
 
 	new value;
-	TrieGetCell(g_tPlayerPreferences[id], key, value);
+	TrieGetCell(g_tPlayerPreferences[id], g_sTmpKey, value);
 
 	return bool: value;
 }
 
-public native_get_string_global(plugin, argc)  {
-	enum    {
+public native_get_string_global(plugin, argc)  
+{
+	enum    
+	{
 		arg_key = 1,
 		arg_dest,
 		arg_length,
@@ -512,22 +549,26 @@ public native_get_string_global(plugin, argc)  {
 	new id = 0;
 	CHECK_NATIVE_PLAYER(id, 0)
 
-	new key[MAX_KEY_LENGTH], value[MAX_VALUE_STRING_LENGTH];
+	new value[MAX_VALUE_STRING_LENGTH];
 
-	get_string(arg_key, key, charsmax(key));
+	get_string(arg_key, g_sTmpKey, charsmax(g_sTmpKey));
 
-	if (TrieKeyExists(g_tPlayerPreferences[id], key))  {
-		TrieGetString(g_tPlayerPreferences[id], key, value, charsmax(value));
+	if (TrieKeyExists(g_tPlayerPreferences[id], g_sTmpKey))  
+	{
+		TrieGetString(g_tPlayerPreferences[id], g_sTmpKey, value, charsmax(value));
 	}
-	else if (argc >= arg_default)  {
+	else if (argc >= arg_default)  
+	{
 		get_string(arg_default, value, charsmax(value));
 	}
 
 	return set_string(arg_dest, value, get_param(arg_length));
 }
 
-public native_set_number_global(plugin, argc)  {
-	enum    {
+public native_set_number_global(plugin, argc)  
+{
+	enum    
+	{
 		arg_key = 1,
 		arg_value
 	};
@@ -537,18 +578,19 @@ public native_set_number_global(plugin, argc)  {
 	new id = 0;
 	CHECK_NATIVE_PLAYER(id, 0)
 
-	new key[MAX_KEY_LENGTH];
-	get_string(arg_key, key, charsmax(key));
+	get_string(arg_key, g_sTmpKey, charsmax(g_sTmpKey));
 
 	new value = get_param(arg_value);
-	TrieSetCell(g_tPlayerPreferences[id], key, value);
-	json_object_set_number(g_jObject[id],key,value);
-	new retval = setValue(id, key);
+	TrieSetCell(g_tPlayerPreferences[id], g_sTmpKey, value);
+	json_object_set_number(g_jObject[id],g_sTmpKey,value);
+	new retval = setValue(id, g_sTmpKey);
 	return retval;
 }
 
-public native_set_bool_global(plugin, argc)  {
-	enum    {
+public native_set_bool_global(plugin, argc)  
+{
+	enum    
+	{
 		arg_key = 1,
 		arg_value
 	};
@@ -558,18 +600,19 @@ public native_set_bool_global(plugin, argc)  {
 	new id = 0;
 	CHECK_NATIVE_PLAYER(id, 0)
 
-	new key[MAX_KEY_LENGTH];
-	get_string(arg_key, key, charsmax(key));
+	get_string(arg_key, g_sTmpKey, charsmax(g_sTmpKey));
 
 	new bool: value = bool: get_param(arg_value);
-	TrieSetCell(g_tPlayerPreferences[id], key, value ? 1 : 0);
-	json_object_set_bool(g_jObject[id],key,value);
-	new retval = setValue(id, key);
+	TrieSetCell(g_tPlayerPreferences[id], g_sTmpKey, value ? 1 : 0);
+	json_object_set_bool(g_jObject[id],g_sTmpKey,value);
+	new retval = setValue(id, g_sTmpKey);
 	return retval;
 }
 
-public native_set_float_global(plugin, argc)  {
-	enum    {
+public native_set_float_global(plugin, argc)  
+{
+	enum    
+	{
 		arg_key = 1,
 		arg_value
 	};
@@ -579,18 +622,19 @@ public native_set_float_global(plugin, argc)  {
 	new id = 0;
 	CHECK_NATIVE_PLAYER(id, 0)
 
-	new key[MAX_KEY_LENGTH];
-	get_string(arg_key, key, charsmax(key));
+	get_string(arg_key, g_sTmpKey, charsmax(g_sTmpKey));
 
 	new Float: value = get_param_f(arg_value);
-	TrieSetCell(g_tPlayerPreferences[id], key, value);
-	json_object_set_number(g_jObject[id],key,cell: value);
-	new retval = setValue(id, key);
+	TrieSetCell(g_tPlayerPreferences[id], g_sTmpKey, value);
+	json_object_set_number(g_jObject[id],g_sTmpKey,cell: value);
+	new retval = setValue(id, g_sTmpKey);
 	return retval;
 }
 
-public native_set_string_global(plugin, argc)  {
-	enum    {
+public native_set_string_global(plugin, argc)  
+{
+	enum    
+	{
 		arg_key = 1,
 		arg_value
 	};
@@ -600,41 +644,58 @@ public native_set_string_global(plugin, argc)  {
 	new id = 0;
 	CHECK_NATIVE_PLAYER(id, 0)
 
-	new key[MAX_KEY_LENGTH], value[MAX_VALUE_STRING_LENGTH];
-	get_string(arg_key, key, charsmax(key));
-	get_string(arg_value, key, charsmax(key));
+	new value[MAX_VALUE_STRING_LENGTH];
+	get_string(arg_key, g_sTmpKey, charsmax(g_sTmpKey));
+	get_string(arg_value, g_sTmpKey, charsmax(g_sTmpKey));
 
-	TrieSetString(g_tPlayerPreferences[id], key, value);
-	json_object_set_string(g_jObject[id],key,cell: value);
-	new retval = setValue(id, key);
+	TrieSetString(g_tPlayerPreferences[id], g_sTmpKey, value);
+	json_object_set_string(g_jObject[id],g_sTmpKey,cell: value);
+	new retval = setValue(id, g_sTmpKey);
 	return retval;
 }
 
-stock setValue(const id, const key[])    {
+public setValue(const id, const g_sTmpKey[])    
+{
 	new fwReturn;
-	ExecuteForward(g_eForwards[Fwd_KeyChanged], fwReturn, id, key);
+	ExecuteForward(g_eForwards[Fwd_KeyChanged], fwReturn, id, g_sTmpKey);
 
-	if (g_hTuple == Empty_Handle || fwReturn == PLUGIN_HANDLED) {
+	if (g_hTuple == Empty_Handle || fwReturn == PLUGIN_HANDLED) 
+	{
 		return -1;
 	}
 	return 1;
 }
 
-public client_connect(id)   {
+public client_putinserver(id)   
+{
+	DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "User putinserver %d",id);
+	if (is_user_hltv(id) || is_user_bot(id))    
+	{
+		g_bConnected[id] = false;
+		return;
+	}
 	load_player(id);
 	if (g_jObject[0] == Invalid_JSON)
 		load_player(0);
+	
+	DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "User putinserver END %d",id);
 }
 
-public client_disconnected(id)  {
-	if (g_bConnected[id])   {
-		save_values(id);
-	}
+public client_disconnected(id)  
+{
+	DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "User disconnect %d",id);
 	if (g_jObject[0] != Invalid_JSON)
 		save_values(0);
+	
+	CHECK_PLAYER(id)
+	
+	if (id != 0)
+		save_values(id);
+	DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "User disconnect END %d",id);
 }
 
-public ChallengeClear(id)   {
+public ChallengeClear(id)   
+{
 	if (g_bConnected[id])
 		ExecuteForward(g_eForwards[Fwd_UnLoaded], _, id);
 	g_bConnected[id] = false;
@@ -644,26 +705,29 @@ public ChallengeClear(id)   {
 }
 
 	
-save_values(const id)  {
-	if (g_hTuple == Empty_Handle)   {
+save_values(const id)  
+{
+	if (g_hTuple == Empty_Handle)
+	{
 		ChallengeClear(id);
 		return;
 	}
+	
+	if (!g_bConnected[id])
+	{
+		return;
+	}
+	
+	ExecuteForward(g_eForwards[Fwd_PreSaving], _, id);
 
-	/*
-	if (json_serial_size(g_jObject[id]) < 3)  {
-		ChallengeClear(id);
-		return;
-	}
-	*/
 	if (id == 0)
 	{
-		json_serial_to_string(g_jObject[id], jsonDataBuffer, charsmax(jsonDataBuffer));
-		formatex(queryBuffer, charsmax(queryBuffer), "REPLACE INTO %s (auth, data) VALUES ('global', '%s')", dbdata[table], jsonDataBuffer);
+		json_serial_to_string(g_jObject[id], g_sJsonDataBuf, charsmax(g_sJsonDataBuf));
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "REPLACE INTO %s (auth, data) VALUES ('global', '%s')", dbdata[table], g_sJsonDataBuf);
 		new data[2];
 		data[0] = 0;
 		data[1] = -3;
-		SQL_ThreadQuery(g_hTuple, "ThreadHandler", queryBuffer, data, sizeof data);
+		SQL_ThreadQuery(g_hTuple, "ThreadHandler", g_sTmpBuf, data, sizeof data);
 		return;
 	}
 
@@ -672,71 +736,73 @@ save_values(const id)  {
 	get_user_name(id,name,charsmax(name))
 	hash_string(name,Hash_Crc32,hash,charsmax(hash));
 	get_user_authid(id, auth, charsmax(auth));
-	json_serial_to_string(g_jObject[id], jsonDataBuffer, charsmax(jsonDataBuffer));
+	json_serial_to_string(g_jObject[id], g_sJsonDataBuf, charsmax(g_sJsonDataBuf));
 	
 	if (g_iSaveType == 1)
-		formatex(queryBuffer, charsmax(queryBuffer), "REPLACE INTO %s (auth, data) VALUES ('%s-%s', '%s')", dbdata[table], auth, hash, jsonDataBuffer);
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "REPLACE INTO %s (auth, data) VALUES ('%s-%s', '%s')", dbdata[table], auth, hash, g_sJsonDataBuf);
 	else if (g_iSaveType == 2)
-		formatex(queryBuffer, charsmax(queryBuffer), "REPLACE INTO %s (auth, data) VALUES ('%s', '%s')", dbdata[table], auth, jsonDataBuffer);
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "REPLACE INTO %s (auth, data) VALUES ('%s', '%s')", dbdata[table], auth, g_sJsonDataBuf);
 	else 
-		formatex(queryBuffer, charsmax(queryBuffer), "REPLACE INTO %s (auth, data) VALUES ('%s', '%s')", dbdata[table], auth, jsonDataBuffer);
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "REPLACE INTO %s (auth, data) VALUES ('%s', '%s')", dbdata[table], auth, g_sJsonDataBuf);
 		
-	DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "QUERY SAVE: %s", queryBuffer);
+	DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "QUERY SAVE %d: %s",id, g_sTmpBuf);
 
 	new data[2];
 	data[0] = 0;
 	data[1] = -1;
-	SQL_ThreadQuery(g_hTuple, "ThreadHandler", queryBuffer, data, sizeof data);
+	SQL_ThreadQuery(g_hTuple, "ThreadHandler", g_sTmpBuf, data, sizeof data);
 	ChallengeClear(id);
 }
 
-load_player(id)  {
-	if (id == 0)
+public load_player(id)  
+{
+	g_bConnected[id] = true;
+	
+	if (g_jObject[id] == Invalid_JSON)
 	{
-		g_bConnected[0] = true;
-		g_jObject[0] = json_init_object();
-		g_tPlayerPreferences[0] = TrieCreate();
-		formatex(queryBuffer, charsmax(queryBuffer), "SELECT auth, data FROM %s WHERE auth = 'global'", dbdata[table]);
-		new data[2];
-		data[0] = 0;
-		data[1] = -2;
-		SQL_ThreadQuery(g_hTuple, "ThreadHandler", queryBuffer, data, sizeof data);
+		g_jObject[id] = json_init_object();
+		g_tPlayerPreferences[id] = TrieCreate();
+	}
+	
+	if (g_hTuple == Empty_Handle)   
+	{
 		return;
 	}
 	
-	if (is_user_hltv(id) || is_user_bot(id))    {
+	if (id == 0)
+	{
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "SELECT auth, data FROM %s WHERE auth = 'global'", dbdata[table]);
+		new data[2];
+		data[0] = 0;
+		data[1] = -2;
+		SQL_ThreadQuery(g_hTuple, "ThreadHandler", g_sTmpBuf, data, sizeof data);
+		DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "QUERY LOAD GLOBAL %d: %s",id, g_sTmpBuf);
 		return;
 	}
 
-	g_bConnected[id] = true;
-	g_jObject[id] = json_init_object();
-	g_tPlayerPreferences[id] = TrieCreate();
-
-	if (g_hTuple == Empty_Handle)   {
-		return;
-	}
-
-	new queryBuffer[128], szAuth[128];
+	new g_sTmpBuf[128], szAuth[128];
 	new name[128], hash[128];
 	get_user_name(id,name,charsmax(name))
 	hash_string(name,Hash_Crc32,hash,charsmax(hash));
 	get_user_authid(id, szAuth, charsmax(szAuth));
 
 	if (g_iSaveType == 1)
-		formatex(queryBuffer, charsmax(queryBuffer), "SELECT auth, data FROM %s WHERE auth = '%s-%s'", dbdata[table], szAuth, hash);
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "SELECT auth, data FROM %s WHERE auth = '%s-%s'", dbdata[table], szAuth, hash);
 	else if (g_iSaveType == 2)
-		formatex(queryBuffer, charsmax(queryBuffer), "SELECT auth, data FROM %s WHERE auth = '%s'", dbdata[table], szAuth);
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "SELECT auth, data FROM %s WHERE auth = '%s'", dbdata[table], szAuth);
 	else
-		formatex(queryBuffer, charsmax(queryBuffer), "SELECT auth, data FROM %s WHERE auth = '%s'", dbdata[table], szAuth);
-	DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "QUERY LOAD: %s", queryBuffer);
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "SELECT auth, data FROM %s WHERE auth = '%s'", dbdata[table], szAuth);
+	DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "QUERY LOAD %d: %s",id, g_sTmpBuf);
 	new data[2];
 	data[0] = id;
 	data[1] = get_user_userid(id);
-	SQL_ThreadQuery(g_hTuple, "ThreadHandler", queryBuffer, data, sizeof data);
+	SQL_ThreadQuery(g_hTuple, "ThreadHandler", g_sTmpBuf, data, sizeof data);
 }
 
-public ThreadHandler(failstate, Handle: query, error[], errnum, data[], size, Float: queuetime)   {
-	if (failstate)  {
+public ThreadHandler(failstate, Handle: query, error[], errnum, data[], size, Float: queuetime)   
+{
+	if (failstate)  
+	{
 		log_to_file("PLAYER_PREF_DEBUG.log", "[PP] [%d]: %s", errnum, error);
 		return PLUGIN_HANDLED;
 	}
@@ -750,17 +816,20 @@ public ThreadHandler(failstate, Handle: query, error[], errnum, data[], size, Fl
 
 	CHECK_NATIVE_PLAYER(id, PLUGIN_HANDLED)
 
-	if (data[1] != -2 && get_user_userid(id) != data[1]) {
+	if (data[1] != -2 && get_user_userid(id) != data[1]) 
+	{
 		log_to_file("PLAYER_PREF_DEBUG.log","[PP] Userid %d != Pushed userid %d", get_user_userid(id), data[1]);
 		return PLUGIN_HANDLED;
 	}
 
-	if (SQL_NumResults(query))  {
-		SQL_ReadResult(query, SQL_FieldNameToNum(query, "data"), jsonDataBuffer, charsmax(jsonDataBuffer));
+	if (SQL_NumResults(query))  
+	{
+		SQL_ReadResult(query, SQL_FieldNameToNum(query, "data"), g_sJsonDataBuf, charsmax(g_sJsonDataBuf));
 
-		new JSON: jsonValue = json_parse(jsonDataBuffer);
+		new JSON: jsonValue = json_parse(g_sJsonDataBuf);
 
-		if (jsonValue == Invalid_JSON || jsonDataBuffer[0] != '{' || jsonDataBuffer[strlen(jsonDataBuffer) - 1] != '}')   {
+		if (jsonValue == Invalid_JSON || g_sJsonDataBuf[0] != '{' || g_sJsonDataBuf[strlen(g_sJsonDataBuf) - 1] != '}')   
+		{
 			json_free(jsonValue);
 
 			if (DEBUG)  {
@@ -773,41 +842,45 @@ public ThreadHandler(failstate, Handle: query, error[], errnum, data[], size, Fl
 		}
 		else 
 		{
-			DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "[PP] FULL RESPONSE:%s", jsonDataBuffer);
+			DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "[PP] FULL RESPONSE:%s", g_sJsonDataBuf);
 			new numsc = 0,strings = 0,booleans = 0;
 			new values = json_object_get_count(jsonValue);
 			new bool: bSomeBoolean, iSomeNumber;
-			new value[MAX_VALUE_STRING_LENGTH],key[MAX_KEY_LENGTH];
+			new value[MAX_VALUE_STRING_LENGTH];
 			new JSON: element;
 			new JSONType: jstype;
 			for (new i = 0; i < values; i++)  
 			{ 
-				json_object_get_name(jsonValue, i, key, charsmax(key));
+				json_object_get_name(jsonValue, i, g_sTmpKey, charsmax(g_sTmpKey));
 				element = json_object_get_value_at(jsonValue, i);
 				
 				jstype = json_get_type(element);
-				switch  (jstype) {
-					case JSONString:    {
+				switch  (jstype) 
+				{
+					case JSONString:    
+					{
 						strings++;
 						json_get_string(element, value, charsmax(value));
 						iSomeNumber = str_to_num(value);
-						DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "[PP] JSON NAME: %s. JSTYPE: %i. VALUE:%s",key, jstype,value);
-						TrieSetString(g_tPlayerPreferences[id], key, value);
-						json_object_set_string(g_jObject[id], key, value);
+						DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "[PP] JSON NAME: %s. JSTYPE: %i. VALUE:%s",g_sTmpKey, jstype,value);
+						TrieSetString(g_tPlayerPreferences[id], g_sTmpKey, value);
+						json_object_set_string(g_jObject[id], g_sTmpKey, value);
 					}
-					case JSONNumber:    {
+					case JSONNumber:   
+					{
 						numsc++;
 						iSomeNumber = json_get_number(element);
-						TrieSetCell(g_tPlayerPreferences[id], key, iSomeNumber);
-						json_object_set_number(g_jObject[id], key, iSomeNumber);
-						DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "[PP] JSON NAME: %s. JSTYPE: %i. VALUE:%d",key, jstype,iSomeNumber);
+						TrieSetCell(g_tPlayerPreferences[id], g_sTmpKey, iSomeNumber);
+						json_object_set_number(g_jObject[id], g_sTmpKey, iSomeNumber);
+						DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "[PP] JSON NAME: %s. JSTYPE: %i. VALUE:%d",g_sTmpKey, jstype,iSomeNumber);
 					}
-					case JSONBoolean:   {
+					case JSONBoolean:   
+					{
 						booleans++;
 						bSomeBoolean = json_get_bool(element);
-						TrieSetCell(g_tPlayerPreferences[id], key, bSomeBoolean ? 1 : 0);
-						json_object_set_bool(g_jObject[id], key, bSomeBoolean);
-						DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "[PP] JSON NAME: %s. JSTYPE: %i. VALUE:%d",key, jstype,bSomeBoolean);
+						TrieSetCell(g_tPlayerPreferences[id], g_sTmpKey, bSomeBoolean ? 1 : 0);
+						json_object_set_bool(g_jObject[id], g_sTmpKey, bSomeBoolean);
+						DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "[PP] JSON NAME: %s. JSTYPE: %i. VALUE:%d",g_sTmpKey, jstype,bSomeBoolean);
 					}
 				}
 				json_free(element);
@@ -820,13 +893,16 @@ public ThreadHandler(failstate, Handle: query, error[], errnum, data[], size, Fl
 	else 
 	{
 		DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "[PP] No results in query!");
+		ExecuteForward(g_eForwards[Fwd_Loaded], _, id);
 	}
 	ExecuteForward(g_eForwards[Fwd_Loaded], _, id);
 	return PLUGIN_HANDLED;
 }
 
-public plugin_end() {
-	if (g_hTuple != Empty_Handle) {
+public plugin_end() 
+{
+	if (g_hTuple != Empty_Handle) 
+	{
 		SQL_FreeHandle(g_hTuple);
 	}
 }

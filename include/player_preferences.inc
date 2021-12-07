@@ -13,6 +13,16 @@
  */
 forward player_loaded(const id);
 
+
+/**
+ * Called before player is saving.
+ *
+ * @param id                Client index
+ *
+ * @noreturn
+ */
+forward player_save(const id);
+
 /**
  * Called when a value of a key is changed.
  *
