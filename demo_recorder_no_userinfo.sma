@@ -40,7 +40,6 @@ public client_putinserver(id)
 public record_demo(idtask)
 {
 	new id = idtask - TASK_DEMO1;
-	log_amx("record_demo:%d", id)
 	
 	g_iCurrentDemoID[id] = pp_get_number(id, "did");
 	g_iCurrentDemoID[id]++;
