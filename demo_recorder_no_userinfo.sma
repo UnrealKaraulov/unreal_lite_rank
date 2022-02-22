@@ -37,10 +37,20 @@ public client_putinserver(id)
 	set_task(5.0, "record_demo", TASK_DEMO1 + id);
 }
 
+public server_changelevel(map[])
+{
+	for(new i = 1; i < 33; i++)
+	{
+		if (is_user_connected(i))
+		{
+			client_cmd(i, "stop");
+		}
+	}
+}
+
 public record_demo(idtask)
 {
 	new id = idtask - TASK_DEMO1;
-	log_amx("record_demo:%d", id)
 	
 	g_iCurrentDemoID[id] = pp_get_number(id, "did");
 	g_iCurrentDemoID[id]++;
@@ -53,7 +63,7 @@ public record_demo(idtask)
 	new Name[33], Time[9];
 	get_user_name(id, Name, 32);
 	get_time("%H:%M:%S", Time, 8);
-	client_print_color(id, print_team_red,"^4[PATRIOTS]^1 Идёт запись демо ^4^"%s_%i.dem^"^1 - ^4%s.", g_sDemoPrefix,g_iCurrentDemoID[id], Time);
+	client_print_color(id, print_team_red,"^4[NEWPATRIOTS.RU]^1 Идёт запись демо ^4^"%s_%i.dem^"^1 - ^4%s.", g_sDemoPrefix,g_iCurrentDemoID[id], Time);
 }
 
 

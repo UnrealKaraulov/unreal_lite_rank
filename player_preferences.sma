@@ -80,7 +80,7 @@ public read_json()
 	new filePath[PLATFORM_MAX_PATH];
 	get_localinfo("amxx_configsdir", filePath, charsmax(filePath));
 
-	add(filePath, charsmax(filePath), "/preferences.json");
+	add(filePath, charsmax(filePath), "/plugins/player_prefs/preferences.json");
 
 	if (!file_exists(filePath)) 
 	{
