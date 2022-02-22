@@ -213,7 +213,7 @@ public win_ct()
 	
 public round_winner(team)
 {
-	for (new id = 1; id <= MAX_PLAYERS + 1; id++) {
+	for (new id = 1; id < MAX_PLAYERS + 1; id++) {
 		if (!is_user_connected(id) || !g_StatsActivated[id]) 
 			continue;
 		g_bPlayerUpdateHud[id] = true;
@@ -407,7 +407,7 @@ public round_begin()
 	g_iRoundId++;
 	if (g_fRoundTime < 0.0)
 		g_fRoundTime = get_gametime();
-	for(new id = 0; id <= MAX_PLAYERS + 1;id++)
+	for(new id = 0; id < MAX_PLAYERS + 1;id++)
 	{
 		g_bBombPlant[id] = false;
 		g_pbomb_planted[id] = false;
@@ -438,7 +438,7 @@ public client_disconnected(id)
 {
 	g_StatsActivated[id] = false;
 	arrayset(g_iPlayerData[id], 0, MEHp);
-	for(new i = 0; i <= MAX_PLAYERS + 1;i++)
+	for(new i = 0; i < MAX_PLAYERS + 1;i++)
 	{
 		if (g_iPlayerData[i][ME_killerid] == id)
 		{
@@ -458,7 +458,7 @@ public client_disconnected(id)
 public client_putinserver(id)
 {
 	arrayset(g_iPlayerData[id], 0, MEHp);
-	for(new i = 0; i <= MAX_PLAYERS + 1;i++)
+	for(new i = 0; i < MAX_PLAYERS + 1;i++)
 	{
 		if (g_iPlayerData[i][ME_killerid] == id)
 		{
@@ -653,7 +653,7 @@ public client_death(killer, victim, wpnindex, hitplace, TK)
 		ClCmdME(victim);
 	}
 	
-	for(new i = 1; i <= MAX_PLAYERS + 1;i++)
+	for(new i = 1; i < MAX_PLAYERS + 1;i++)
 	{
 		if (i != killer && g_iPlayerData[i][ME_victim] == victim && 
 			g_StatsActivated[i])
