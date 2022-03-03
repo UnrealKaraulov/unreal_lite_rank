@@ -1,6 +1,7 @@
 #include <amxmodx>
 #include <amxmisc>
 #include <player_preferences>
+#include <unreal_lite_rank>
 #include <csx>
 #include <engine>
 // Нужно перевести на reapi не забыть
@@ -23,6 +24,7 @@ public stock const PluginURL[] = "https://";
 
 enum _:MEHp { ME_dmg, ME_lasthit, ME_victim, ME_killerid, ME_killername[33], Float:ME_distance, Float:ME_hpkiller, Float:ME_apkiller };
 
+#define MAGIC_NUMBER -9999
 
 /* GLOBAL VARIABLES */
 new bool:g_StatsActivated[MAX_PLAYERS + 1];
@@ -35,13 +37,19 @@ new bool:g_pbomb_defusing[MAX_PLAYERS + 1];
 new bool:g_pbomb_defused[MAX_PLAYERS + 1];
 
 new g_iPlayerData[MAX_PLAYERS + 1][MEHp];
-new const g_szHitPlaces[][] = { "-", "чepeп", "гpyдь", "живoт", "лeвyю pyкy", "пpaвyю pyкy", "лeвyю нoгy", "пpaвyю нoгy", "xз кyдa"  };
-new const g_szHitPlaces2[][] = { "-", "мoзг", "пpямo в cepдцe", "дyшy", "лeвoe yxo", "пpaвый глaз", "лeвый бoтинoк", "пpaвoe кoлeнo", "xз кyдa" };
+new const g_szHitPlaces[][] = { "тело", "чepeп", "гpyдь", "живoт", "лeвyю pyкy", "пpaвyю pyкy", "лeвyю нoгy", "пpaвyю нoгy", "xз кyдa"  };
+new const g_szHitPlaces2[][] = { "тело", "мoзг", "пpямo в cepдцe", "дyшy", "лeвoe yxo", "пpaвый глaз", "лeвый бoтинoк", "пpaвoe кoлeнo", "xз кyдa" };
 
 new g_iRoundId = 0;
 
 new Float:g_fRoundTime = -1.0;
 new bool:g_bDisableSAYHPME = false;
+
+new g_iCacheSkills[MAX_PLAYERS + 1] = {0,...};
+new Float:g_fCacheSkillsTime[MAX_PLAYERS + 1] = {0.0,...};
+
+new g_iCacheScore[MAX_PLAYERS + 1] = {0,...};
+new Float:g_fCacheScoreTime[MAX_PLAYERS + 1] = {0.0,...};
 
 
 new g_iLevelId = 0;
@@ -64,6 +72,9 @@ new g_sPrefix[64];
 
 new Float:g_fHudPos[2];
 new Float:g_fHudUpdateTimer = 1.0;
+new Float:g_fStatsCacheClearTime = 5.0;
+
+new Float:g_fCurrentTime = 0.0;
 
 new g_iPTS_TRY_PLACE_BOMB = 5;
 new g_iPTS_PLACE_BOMB = 10;
@@ -75,10 +86,25 @@ new g_iPTS_LOSE = 10;
 new g_iPTS_KILL = 5;
 new g_iPTS_DEATH = 10;
 new g_iPTS_HS_KILL = 5;
+new g_iPTS_KILL_ASSIST = 2;
+
+new g_iSTART_RANK = 100;
+new g_iSTART_SKILL = 100;
+
 new Float:g_fPTS_TIME_EXP_MULTIPLIER = 1.0;
 
 new g_hHudMessageRank;
 new g_hHudMessageAnother;
+
+new g_bPaused = false;
+
+new g_fUserLevelUpdated,g_fUserReceiveXP;
+
+public plugin_end()
+{
+	DestroyForward(g_fUserLevelUpdated);
+	DestroyForward(g_fUserReceiveXP);
+}
 
 public plugin_init()    {
 	register_plugin(PluginName, PluginVersion, PluginAuthor/*,PluginURL*/);
@@ -112,29 +138,43 @@ public plugin_init()    {
 	register_clcmd("say clearstats", 		"ClCmdClearStats");
 	register_clcmd("say /clearstats", 		"ClCmdClearStats");
 	
-	register_clcmd("say anew", 		"ClCmdBonusMenu");
-	register_clcmd("say /anew", 		"ClCmdBonusMenu");
-	
-	register_clcmd("say bonusmenu", 		"ClCmdBonusMenu");
-	register_clcmd("say /bonusmenu", 		"ClCmdBonusMenu");
-	
-	register_clcmd("say viptest", 		"ClCmdBonusMenu");
-	register_clcmd("say /viptest", 		"ClCmdBonusMenu");
-	
 	register_concmd("disable_sayhp", "disable_sayhp", ADMIN_RCON);
 	register_concmd("reload_rank_cfg", "reload_rank_cfg", ADMIN_RCON);
 	
+	register_srvcmd("rank_pause", "rank_set_pause", ADMIN_RCON);
+	register_srvcmd("rank_unpause", "rank_set_unpause", ADMIN_RCON);
+	
 	parseConfigFile();
 	
-	g_hHudMessageRank = CreateHudSyncObj()
-	g_hHudMessageAnother = CreateHudSyncObj()
+	g_hHudMessageRank = CreateHudSyncObj();
+	g_hHudMessageAnother = CreateHudSyncObj();
+	
+	g_fUserLevelUpdated = CreateMultiForward("unrealranks_user_level_updated", ET_IGNORE, FP_CELL, FP_CELL, FP_STRING, FP_STRING);
+	g_fUserReceiveXP    = CreateMultiForward("unrealranks_user_receive_xp",    ET_IGNORE, FP_CELL, FP_CELL);
 	
 	set_task_ex(g_fHudUpdateTimer, "hud_update_task");
+	
+	set_task_ex(0.5,"timer_for_update_time", .flags = SetTask_Repeat);
+}
+
+public timer_for_update_time(id)
+{
+	g_fCurrentTime = get_gametime();
 }
 
 public reload_rank_cfg(id)
 {
 	parseConfigFile();
+}
+
+public rank_set_pause(id)
+{
+	g_bPaused = true;
+}
+
+public rank_set_unpause(id)
+{
+	g_bPaused = false;
 }
 
 public hud_update_task(id)
@@ -155,22 +195,34 @@ public hud_update_task(id)
 				continue;
 			}
 			level = getPlayerLvl(pid);
+			if (level > g_iLevelId - 1)
+				level = g_iLevelId - 1;
 			score = getPlayerScore(pid);
 			skillid = getPlayerSkill(pid);
+			if (skillid > g_iSkillId - 1)
+				skillid = g_iSkillId - 1;
 			skillscore = getPlayerScoreSkill(pid);
 			
-			if (score < 0) score = 0;
-			if (skillscore < 0) skillscore = 0;
+			if (score == MAGIC_NUMBER) score = 0;
+			if (skillscore == MAGIC_NUMBER) skillscore = 0;
 				
 			get_user_name(pid,username,charsmax(username));
 			set_hudmessage(0, 80, 220, g_fHudPos[0], g_fHudPos[1], 0, 0.0, g_fHudUpdateTimer + 0.10, 0.0, 0.0)
-			formatex(g_sPlayerHudMessage[pid],charsmax(g_sPlayerHudMessage[]),"Ник: %s^nЗвание: %s^nУровень: %i^nОпыт: [%i/%i][%i за карту]^nСкил: %s [%i/%i][%i за карту]",
-						username, g_sRanks[level], level + 1, score, level >= g_iLevelId - 1? g_iRanks[g_iLevelId - 1] : g_iRanks[level],
-						score - g_iPlayerStartRank[pid], g_sSkills[skillid], skillscore,
-						skillid >= g_iSkillId - 1 ? g_iSkills[g_iSkillId - 1] : g_iSkills[skillid], skillscore - g_iPlayerStartSkill[pid]);
+			formatex(g_sPlayerHudMessage[pid],charsmax(g_sPlayerHudMessage[]),"Ник: %s^nУровень: %i^nЗвание: %s^nОпыт: [%i/%i][%i за карту]^nСкил: %s [%i/%i][%i за карту]",
+						username, level + 1, 
+						g_sRanks[level], 
+						score, 
+						g_iRanks[level],
+						score - g_iPlayerStartRank[pid], 
+						g_sSkills[skillid], 
+						skillscore,
+						g_iSkills[skillid], 
+						skillscore - g_iPlayerStartSkill[pid]);
 			
 			ShowSyncHudMsg(pid, g_hHudMessageRank, "%s",g_sPlayerHudMessage[pid]);
 			g_bPlayerUpdateHud[pid] = false;
+			
+			ExecuteForward(g_fUserLevelUpdated, _, pid, level, g_sRanks[level], g_sSkills[skillid])
 		}
 		else 
 		{
@@ -193,18 +245,6 @@ public disable_sayhp()
 	g_bDisableSAYHPME = true;
 }
 
-public ClCmdBonusMenu(id)
-{
-	if (g_StatsActivated[id])
-	{
-		
-	}
-	else 
-	{
-		client_print_color(id, print_team_red, "^4[NEWPATRIOTS.RU]^3 Нет данных. ");
-	}
-}
-
 public win_t()
 	round_winner(1);
 
@@ -219,12 +259,14 @@ public round_winner(team)
 		g_bPlayerUpdateHud[id] = true;
 		if (get_user_team(id) == team)
 		{
+			ExecuteForward(g_fUserReceiveXP, _, id, g_iPTS_WIN);
 			new val = pp_get_number(id, "win");
 			val++;
 			pp_set_number(id,"win",val);
 		}
 		else 
 		{
+			ExecuteForward(g_fUserReceiveXP, _, id, -g_iPTS_LOSE);
 			new val = pp_get_number(id, "lose");
 			val++;
 			pp_set_number(id,"lose",val);
@@ -232,15 +274,21 @@ public round_winner(team)
 	}
 }
 
-public getPlayerScore(id)
+getPlayerScore(id)
 {
 	if (!is_user_valid(id) || !g_StatsActivated[id])
 	{
-		return -1;
+		return MAGIC_NUMBER;
 	}
-	new result_score = 100;
 	
-	result_score += floatround((pp_get_float(id, "r_time") / 60.0) * g_fPTS_TIME_EXP_MULTIPLIER); // 1 MIN = 1 PTS
+	if (g_fCurrentTime - g_fCacheScoreTime[id] < g_fStatsCacheClearTime)
+	{
+		return g_iCacheScore[id];
+	}
+	
+	new result_score = g_iSTART_RANK;
+	
+	result_score += floatround((pp_get_number(id, "r_time") / 60.0) * g_fPTS_TIME_EXP_MULTIPLIER); // 1 MIN = 1 PTS
 	if (result_score > 2000)
 		result_score = 2000;
 	result_score += pp_get_number(id, "c4_pl_try") * g_iPTS_TRY_PLACE_BOMB; // 1 пoпыткa ycтaнoвить бoмбy + 5 PTS
@@ -253,41 +301,57 @@ public getPlayerScore(id)
 	result_score += pp_get_number(id, "kill") * g_iPTS_KILL; // yбил + 5 PTS
 	result_score -= pp_get_number(id, "dead") * g_iPTS_DEATH; // yмep - 10 PTS
 	result_score += pp_get_number(id, "hs_kill") * g_iPTS_HS_KILL; // yбил в гoлoвy, eщe + 5 PTS
+	result_score += pp_get_number(id, "assist") * g_iPTS_KILL_ASSIST; // Помог убить врага, + 2 PTS
 	
-	return result_score > 0 ? result_score : 1;
+	g_iCacheScore[id] = result_score;
+	g_fCacheScoreTime[id] = g_fCurrentTime;
+	
+	return result_score;
 }
 
 
-public getPlayerScoreSkill(id)
+getPlayerScoreSkill(id)
 {
 	if (!is_user_valid(id) || !g_StatsActivated[id])
 	{
-		return -1;
+		return MAGIC_NUMBER;
 	}
 	
-	new Float:result_score = 100.0;
+	if (g_fCurrentTime - g_fCacheSkillsTime[id] < g_fStatsCacheClearTime)
+	{
+		return g_iCacheSkills[id];
+	}
+	
+	new result_score = g_iSTART_SKILL;
+	new num_shots = 0;
+	new Float:hs_rate = getPlayerHeadShotAccuracy(id,num_shots);
 	
 	result_score += pp_get_number(id, "c4_pl_try"); 
-	result_score += pp_get_number(id, "c4_pl_succ") * 2;
+	result_score += pp_get_number(id, "c4_pl_succ");
 	result_score += pp_get_number(id, "c4_def_try");
-	result_score += pp_get_number(id, "c4_def_succ") * 2; 
-	result_score += pp_get_number(id, "c4_expl") * 2;
+	result_score += pp_get_number(id, "c4_def_succ"); 
+	result_score += pp_get_number(id, "c4_expl");
 	result_score += pp_get_number(id, "win");
-	result_score -= pp_get_number(id, "lose") * 2; 
+	result_score -= pp_get_number(id, "lose") * 3; 
 	result_score += pp_get_number(id, "kill"); 
+	result_score += pp_get_number(id, "assist");
 	result_score -= pp_get_number(id, "dead") * 2; 
-	result_score += pp_get_number(id, "hs_kill") * 2; 
+	result_score += pp_get_number(id, "hs_kill"); 
 	
-	result_score += getPlayerHeadShotAccuracy(id) * 100.0;
+	if (num_shots > 10)
+		result_score += floatround(hs_rate * 200.0);
 	
-	return result_score > 0.0 ? floatround(result_score) : 1;
+	g_iCacheSkills[id] = result_score;
+	g_fCacheSkillsTime[id] = g_fCurrentTime;
+	
+	return result_score;
 }
 
-public getPlayerLvl(id)
+getPlayerLvl(id)
 {
-	new last_success_lvl = 0;
+	new last_success_lvl = g_iLevelId - 1;
 	new pl_score = getPlayerScore(id);
-	if (pl_score > 0)
+	if (pl_score != MAGIC_NUMBER)
 	{
 		if (g_iPlayerStartRank[id] == -1)
 			g_iPlayerStartRank[id] = pl_score;
@@ -303,11 +367,11 @@ public getPlayerLvl(id)
 	return last_success_lvl;
 }
 
-public getPlayerSkill(id)
+getPlayerSkill(id)
 {
-	new last_success_lvl = 0;
+	new last_success_lvl = g_iSkillId - 1;
 	new pl_score = getPlayerScoreSkill(id);
-	if (pl_score > 0)
+	if (pl_score != MAGIC_NUMBER)
 	{
 		if (g_iPlayerStartSkill[id] == -1)
 			g_iPlayerStartSkill[id] = pl_score;
@@ -323,7 +387,7 @@ public getPlayerSkill(id)
 	return last_success_lvl;
 }
 
-public Float:getPlayerShotAccuracy(id)
+Float:getPlayerShotAccuracy(id)
 {
 	if (!is_user_valid(id) || !g_StatsActivated[id])
 	{
@@ -344,7 +408,7 @@ public Float:getPlayerShotAccuracy(id)
 	return float(num_shots_with_target) /  float(num_shots);
 }
 
-public Float:getPlayerHeadShotAccuracy(id)
+Float:getPlayerHeadShotAccuracy(id, &numshotsout = -1)
 {
 	if (!is_user_valid(id) || !g_StatsActivated[id])
 	{
@@ -362,6 +426,9 @@ public Float:getPlayerHeadShotAccuracy(id)
 		num_headshots += pp_get_number(id,g_sFormatString1);
 	}
 	
+	if (numshotsout != -1)
+		numshotsout = num_shots;
+	
 	return float(num_headshots) /  float(num_shots);
 }
 
@@ -370,14 +437,14 @@ public ClCmdStats(id)
 {
 	if (g_StatsActivated[id])
 	{
-		client_print_color(id, print_team_red, "^4[NEWPATRIOTS.RU]^3 PTS: ^4%i^3. yбийcтв: ^4%i^3. Cмepтeй: ^4%i^3. Xeдшoтoв: ^4%i^3. Пoбeд: ^4%i^3. Пopaжeний: ^4%i^3.", 
+		client_print_color(id, print_team_red, "^4[%s]^3 PTS: ^4%i^3. yбийcтв: ^4%i^3. Cмepтeй: ^4%i^3. Xeдшoтoв: ^4%i^3. Пoбeд: ^4%i^3. Пopaжeний: ^4%i^3.", g_sPrefix,
 												getPlayerScore(id), pp_get_number(id, "kill"),pp_get_number(id, "dead"),pp_get_number(id, "hs_kill"),pp_get_number(id, "win"),pp_get_number(id, "lose"));
-		client_print_color(id, print_team_red, "^4[NEWPATRIOTS.RU]^3 Пoмoг yбить ^4%i^3 врагов. Тoчнocть пoпaдaний ^4%i%%^3. Тoчнocть в гoлoвy ^4%i%%^3", pp_get_number(id, "assist"),
+		client_print_color(id, print_team_red, "^4[%s]^3 Пoмoг yбить ^4%i^3 врагов. Тoчнocть пoпaдaний ^4%i%%^3. Тoчнocть в гoлoвy ^4%i%%^3",g_sPrefix, pp_get_number(id, "assist"),
 												floatround(getPlayerShotAccuracy(id) * 100.0), floatround(getPlayerHeadShotAccuracy(id) * 100.0));
 	}
 	else 
 	{
-		client_print_color(id, print_team_red, "^4[NEWPATRIOTS.RU]^3 Нет данных. ");
+		client_print_color(id, print_team_red, "^4[%s]^3 Нет данных. ",g_sPrefix);
 	}
 }
 
@@ -385,22 +452,29 @@ public ClCmdClearStats(id)
 {
 	if (g_StatsActivated[id])
 	{
+		g_bPlayerUpdateHud[id] = true;
+		g_iPlayerStartSkill[id] = -1;
+		g_iPlayerStartRank[id] = -1;
+		
+		getPlayerSkill(id); getPlayerLvl(id);
+		
 		new plName[33];
 		get_user_name(id,plName,charsmax(plName));
 		pp_clear(id);
-		client_print_color(id, print_team_red, "^4[NEWPATRIOTS.RU]^3 Игрок ^4%s^3 покидает нас.",plName);
+		client_print_color(id, print_team_red, "^4[%s]^3 Игрок ^4%s^3 покидает нас.",g_sPrefix,plName);
 		set_task(2.0, "homecoming_back", 0)
 	}
 }
 
 public homecoming_back(id)
 {
-	client_print_color(id, print_team_red, "^4[NEWPATRIOTS.RU]^3 Но обещает вернуться.");
+	client_print_color(id, print_team_red, "^4[%s]^3 Но обещает вернуться.",g_sPrefix);
 }
 
 public round_restart()
 {
 	g_iRoundId = 0;
+	g_fRoundTime = get_gametime();
 }
 public round_begin()	
 {
@@ -414,6 +488,10 @@ public round_begin()
 		g_pbomb_defusing[id] = false;
 		g_pbomb_defused[id] = false;
 		
+		g_bPlayerUpdateHud[id] = true;
+		
+		arrayset(g_iPlayerData[id], 0, MEHp);
+		
 		for (new i = 0; i < WEAPONS_END;i++)
 		{
 			weaponsAmmo[id][i] = -1;
@@ -421,15 +499,10 @@ public round_begin()
 		
 		if (g_StatsActivated[id])
 		{
-			if (g_fRoundTime > 0.0)
-			{
-				new Float:fval = pp_get_float(id, "r_time");
-				fval += get_gametime() - g_fRoundTime;
-				if (get_gametime() - g_fRoundTime > 0.0)
-					pp_set_float(id,"r_time",fval);
-			}
+			new fval = pp_get_number(id, "r_time");
+			fval += floatround(get_gametime() - g_fRoundTime);
+			pp_set_number(id,"r_time",fval);
 		}
-		arrayset(g_iPlayerData[id], 0, MEHp);
 	}
 	g_fRoundTime = get_gametime();
 }
@@ -450,7 +523,13 @@ public client_disconnected(id)
 		remove_task(id);
 		
 		
-		
+	g_iCacheSkills[id] = 0;
+	g_fCacheSkillsTime[id] = 0.0;
+	g_iCacheScore[id] = 0;
+	g_fCacheScoreTime[id] = 0.0;
+	
+	
+	
 	g_iPlayerStartSkill[id] = -1;
 	g_iPlayerStartRank[id] = -1;
 }
@@ -468,10 +547,16 @@ public client_putinserver(id)
 	g_bPlayerUpdateHud[id] = true;
 	g_iPlayerStartSkill[id] = -1;
 	g_iPlayerStartRank[id] = -1;
+	
+	g_iCacheSkills[id] = 0;
+	g_fCacheSkillsTime[id] = 0.0;
+	g_iCacheScore[id] = 0;
+	g_fCacheScoreTime[id] = 0.0;
 }
 
 public player_join_event(id)
 {
+	g_bPlayerUpdateHud[id] = true;
 	for (new i = 0; i < WEAPONS_END;i++)
 	{
 		weaponsAmmo[id][i] = -1;
@@ -480,10 +565,15 @@ public player_join_event(id)
 	if (pp_get_number(id,"first", 0) == 0)
 	{
 		pp_set_number(id,"first", get_systime());
-		client_print_color(id, print_team_red, "^4[NEWPATRIOTS.RU]^3 Bы впepвыe зaшли нa нaш cepвep!");
+		client_print_color(id, print_team_red, "^4[%s]^3 Bы впepвыe зaшли нa нaш cepвep!",g_sPrefix);
 		new playername[33];
 		get_user_name(id,playername,charsmax(playername));
-		client_print_color(0, print_team_red, "^4[NEWPATRIOTS.RU]^3 Пpивeтcтвyeм нoвoгo бoйцa ^4%s^3!", playername);
+		client_print_color(0, print_team_red, "^4[%s]^3 Пpивeтcтвyeм нoвoгo бoйцa ^4%s^3!",g_sPrefix, playername);
+		g_bPlayerUpdateHud[id] = true;
+		g_iPlayerStartSkill[id] = -1;
+		g_iPlayerStartRank[id] = -1;
+		
+		getPlayerSkill(id); getPlayerLvl(id);
 	}
 	else 
 	{
@@ -506,8 +596,8 @@ public player_join_event(id)
 				hours -= 24;
 				days++;
 			}
+			client_print_color(id, print_team_red, "^4[%s]^3 Пpивeтcтвyeм cнoвa, вac нe былo ^4%i^3 днeй ^4%i^3 чacoв ^4%i^3 минyт и %i ^4ceкyнд^3!",g_sPrefix,days, hours, minutes, last_time);
 			
-			client_print_color(id, print_team_red, "^4[NEWPATRIOTS.RU]^3 Пpивeтcтвyeм cнoвa, вac нe былo ^4%i^3 днeй ^4%i^3 чacoв ^4%i^3 минyт и %i ^4ceкyнд^3!",days, hours, minutes, last_time);
 		}
 	}
 	pp_set_number(id,"last", get_systime());
@@ -538,7 +628,7 @@ public player_save(const id)
 
 public cur_weapon(id)
 {
-	if (!g_StatsActivated[id])
+	if (!g_StatsActivated[id] || g_bPaused)
 		return;
 	static weapon, ammo;
 
@@ -558,7 +648,7 @@ public cur_weapon(id)
 
 public client_damage(attacker, victim, damage, wpnindex, hitplace, TA)
 {
-	if (is_user_valid(attacker) && g_StatsActivated[attacker])
+	if (is_user_valid(attacker) && g_StatsActivated[attacker] && !g_bPaused)
 	{
 		g_bPlayerUpdateHud[attacker] = true;
 		new val = pp_get_number(attacker, "out_dmg");
@@ -584,7 +674,7 @@ public client_damage(attacker, victim, damage, wpnindex, hitplace, TA)
 		pp_set_number(attacker,g_sFormatString1,val);
 	}
 	
-	if (is_user_valid(victim) && g_StatsActivated[victim])
+	if (is_user_valid(victim) && g_StatsActivated[victim] && !g_bPaused)
 	{
 		g_bPlayerUpdateHud[victim] = true;
 		new val = pp_get_number(victim, "in_dmg");
@@ -592,18 +682,23 @@ public client_damage(attacker, victim, damage, wpnindex, hitplace, TA)
 		pp_set_number(victim,"in_dmg",val);
 	}
 	
-	if (is_user_valid(attacker) && is_user_valid(victim))
+	if (is_user_valid(attacker))
 	{
 		g_iPlayerData[attacker][ME_dmg] += damage;
-		g_iPlayerData[attacker][ME_victim] = victim;
+		if (is_user_valid(victim))
+		{
+			g_iPlayerData[attacker][ME_victim] = victim;
+		}
 		g_iPlayerData[attacker][ME_lasthit] = hitplace;
 	}
+	
+	
 }
 
 public client_death(killer, victim, wpnindex, hitplace, TK)
 {
 	new val = 0;
-	if (is_user_valid(killer) && g_StatsActivated[killer])
+	if (is_user_valid(killer) && g_StatsActivated[killer] && !g_bPaused)
 	{
 		g_bPlayerUpdateHud[killer] = true;
 		formatex(g_sFormatString1, charsmax(g_sFormatString1), "w%i_k", wpnindex);
@@ -611,6 +706,8 @@ public client_death(killer, victim, wpnindex, hitplace, TK)
 		val++;
 		pp_set_number(killer,g_sFormatString1,val);
 		
+		ExecuteForward(g_fUserReceiveXP, _, killer, g_iPTS_KILL)
+			
 		val = pp_get_number(killer, "kill");
 		val++;
 		pp_set_number(killer,"kill",val);
@@ -622,6 +719,8 @@ public client_death(killer, victim, wpnindex, hitplace, TK)
 			val++;
 			pp_set_number(killer,g_sFormatString1,val);
 			
+			ExecuteForward(g_fUserReceiveXP, _, killer, g_iPTS_HS_KILL)
+		
 			val = pp_get_number(killer, "hs_kill");
 			val++;
 			pp_set_number(killer,"hs_kill",val);
@@ -629,9 +728,10 @@ public client_death(killer, victim, wpnindex, hitplace, TK)
 		
 	}
 	
-	if (is_user_valid(victim) && g_StatsActivated[victim])
+	if (is_user_valid(victim) && g_StatsActivated[victim] && !g_bPaused)
 	{
 		g_bPlayerUpdateHud[victim] = true;
+		ExecuteForward(g_fUserReceiveXP, _, victim, -g_iPTS_DEATH)
 		val = pp_get_number(victim, "dead");
 		val++;
 		pp_set_number(victim,"dead",val);
@@ -647,29 +747,35 @@ public client_death(killer, victim, wpnindex, hitplace, TK)
 		get_user_name(killer, g_iPlayerData[victim][ME_killername], charsmax(g_iPlayerData[][ME_killername]));
 	}
 	
-	if (is_user_valid(victim) && is_user_connected(victim) && !g_bDisableSAYHPME)
+	/*if (is_user_valid(victim) && is_user_connected(victim) && !g_bDisableSAYHPME)
 	{
 		ClCmdHP(victim);
 		ClCmdME(victim);
-	}
-	
-	for(new i = 1; i < MAX_PLAYERS + 1;i++)
+	}*/
+	if (!g_bPaused)
 	{
-		if (i != killer && g_iPlayerData[i][ME_victim] == victim && 
-			g_StatsActivated[i])
+		for(new i = 1; i < MAX_PLAYERS + 1;i++)
 		{
-			val = pp_get_number(killer, "assist");
-			val++;
-			pp_set_number(killer,"assist",val);
+			if (i != killer && g_iPlayerData[i][ME_victim] == victim && 
+				g_StatsActivated[i])
+			{
+				ExecuteForward(g_fUserReceiveXP, _, killer, g_iPTS_KILL_ASSIST)
+				val = pp_get_number(killer, "assist");
+				val++;
+				pp_set_number(killer,"assist",val);
+			}
 		}
 	}
 }
 
 public bomb_planting(planter)
 {
-	if (is_user_valid(planter) && !g_bBombPlant[planter] && g_StatsActivated[planter])
+	if (is_user_valid(planter) && !g_bBombPlant[planter] && g_StatsActivated[planter] && !g_bPaused)
 	{
+		g_bBombPlant[planter] = true;
 		g_bPlayerUpdateHud[planter] = true;
+		ExecuteForward(g_fUserReceiveXP, _, planter, g_iPTS_TRY_PLACE_BOMB)
+		
 		new val = pp_get_number(planter, "c4_pl_try");
 		val++;
 		pp_set_number(planter, "c4_pl_try",val);
@@ -678,9 +784,12 @@ public bomb_planting(planter)
 
 public bomb_planted(planter)
 {
-	if (is_user_valid(planter) && !g_pbomb_planted[planter] && g_StatsActivated[planter])
+	if (is_user_valid(planter) && !g_pbomb_planted[planter] && g_StatsActivated[planter] && !g_bPaused)
 	{
+		g_pbomb_planted[planter] = true;
 		g_bPlayerUpdateHud[planter] = true;
+		ExecuteForward(g_fUserReceiveXP, _, planter, g_iPTS_PLACE_BOMB)
+		
 		new val = pp_get_number(planter, "c4_pl_succ");
 		val++;
 		pp_set_number(planter, "c4_pl_succ",val);
@@ -689,24 +798,29 @@ public bomb_planted(planter)
 
 public bomb_explode(planter, defuser)
 {
-	if (is_user_valid(planter) && g_StatsActivated[planter])
+	if (is_user_valid(planter) && g_StatsActivated[planter] && !g_bPaused)
 	{
 		g_bPlayerUpdateHud[planter] = true;
+		ExecuteForward(g_fUserReceiveXP, _, planter, g_iPTS_EXPL_BOMB)
+		
 		new val = pp_get_number(planter, "c4_expl");
 		val++;
 		pp_set_number(planter, "c4_expl",val);
 	}
-	if (is_user_valid(defuser))
+	if (is_user_valid(defuser) && !g_bPaused)
 		g_bPlayerUpdateHud[defuser] = true;
 }
 
 public bomb_defusing(defuser)
 {
-	if (is_user_valid(defuser))
+	if (is_user_valid(defuser) && !g_bPaused)
 	{
 		g_bPlayerUpdateHud[defuser] = true;
 		if (!g_pbomb_defusing[defuser] && g_StatsActivated[defuser])
 		{
+			g_pbomb_defusing[defuser] = true;
+			ExecuteForward(g_fUserReceiveXP, _, defuser, g_iPTS_TRY_DEF_BOMB)
+			
 			new val = pp_get_number(defuser, "c4_def_try");
 			val++;
 			pp_set_number(defuser, "c4_def_try",val);
@@ -716,11 +830,14 @@ public bomb_defusing(defuser)
 
 public bomb_defused(defuser)
 {
-	if (is_user_valid(defuser))
+	if (is_user_valid(defuser) && !g_bPaused)
 	{
 		g_bPlayerUpdateHud[defuser] = true;
 		if (!g_pbomb_defused[defuser] && g_StatsActivated[defuser])
 		{
+			g_pbomb_defused[defuser] = true;
+			ExecuteForward(g_fUserReceiveXP, _, defuser, g_iPTS_DEF_BOMB)
+
 			new val = pp_get_number(defuser, "c4_def_succ");
 			val++;
 			pp_set_number(defuser, "c4_def_succ",val);
@@ -817,6 +934,18 @@ public parseConfigFile()
 			{
 				g_bDisableSAYHPME = str_to_num(szBuffer) < 1;
 			}
+			else if (equali(szKey,"START_RANK"))
+			{
+				g_iSTART_RANK = str_to_num(szBuffer);
+			}
+			else if (equali(szKey,"START_SKILL"))
+			{
+				g_iSTART_SKILL = str_to_num(szBuffer);
+			}
+			else if (equali(szKey,"CACHE_CLEAR_TIME"))
+			{
+				g_fStatsCacheClearTime = str_to_float(szBuffer);
+			}
 		}
 		else if (equali(szSection,"EXP"))
 		{
@@ -860,6 +989,10 @@ public parseConfigFile()
 			{
 				g_iPTS_HS_KILL = str_to_num(szBuffer);
 			}
+			else if (equali(szKey,"KILL_ASSIST"))
+			{
+				g_iPTS_KILL_ASSIST = str_to_num(szBuffer);
+			}
 			else if (equali(szKey,"TIME_EXP_MULTIPLIER"))
 			{
 				g_fPTS_TIME_EXP_MULTIPLIER = str_to_float(szBuffer);
@@ -901,36 +1034,39 @@ public ClCmdME(id)
 		}
 		default:
 		{
-			get_user_name(g_iPlayerData[id][ME_victim], player_name, charsmax(player_name));
-			if (get_user_flags(id) & ADMIN_GIRL)
+			if (is_user_connected(g_iPlayerData[id][ME_victim]))
 			{
-				if (get_user_flags(g_iPlayerData[id][ME_victim]) & ADMIN_GIRL)
+				get_user_name(g_iPlayerData[id][ME_victim], player_name, charsmax(player_name));
+				if (get_user_flags(id) & ADMIN_GIRL)
 				{
-					client_print_color(id, id, "^1[^3ME^1] ^4Tы пoкaлeчилa людeй нa ^3%d^4 ypoнa. Пoпaлa cвoeй пoдpyгe ^3%s^4 в ^3%s^4.", g_iPlayerData[id][ME_dmg], 
-					player_name, 
-					g_szHitPlaces2[g_iPlayerData[id][ME_lasthit]]);
+					if (get_user_flags(g_iPlayerData[id][ME_victim]) & ADMIN_GIRL)
+					{
+						client_print_color(id, id, "^1[^3ME^1] ^4Tы пoкaлeчилa людeй нa ^3%d^4 ypoнa. Пoпaлa cвoeй пoдpyгe ^3%s^4 в ^3%s^4.", g_iPlayerData[id][ME_dmg], 
+						player_name, 
+						g_szHitPlaces2[g_iPlayerData[id][ME_lasthit]]);
+					}
+					else
+					{
+						client_print_color(id, id, "^1[^3ME^1] ^4Tы пoкaлeчилa людeй нa ^3%d^4 ypoнa. Пocлeдний paз ^3%s^4 в ^3%s^4.", g_iPlayerData[id][ME_dmg], 
+						player_name, 
+						g_szHitPlaces2[g_iPlayerData[id][ME_lasthit]]);
+					}
 				}
 				else
 				{
-					client_print_color(id, id, "^1[^3ME^1] ^4Tы пoкaлeчилa людeй нa ^3%d^4 ypoнa. Пocлeдний paз ^3%s^4 в ^3%s^4.", g_iPlayerData[id][ME_dmg], 
-					player_name, 
-					g_szHitPlaces2[g_iPlayerData[id][ME_lasthit]]);
-				}
-			}
-			else
-			{
-				if (get_user_flags(g_iPlayerData[id][ME_victim]) & ADMIN_GIRL)
-				{
-					client_print_color(id, id, "^1[^3ME^1] ^4Tы нaнec ^3%d^4 ypoнa. Paнил дeвyшкy ^3%s^4 в ^3%s^4.", 
-					g_iPlayerData[id][ME_dmg], 
-					player_name, 
-					g_szHitPlaces[g_iPlayerData[id][ME_lasthit]]);
-				}
-				else
-				{
-					client_print_color(id, id, "^1[^3ME^1] ^4Tы нaнec ^3%d^4 ypoнa. Пocлeднee пoпaдaниe ^3%s^4 в ^3%s^4.", g_iPlayerData[id][ME_dmg], 
-					player_name, 
-					g_szHitPlaces[g_iPlayerData[id][ME_lasthit]]);
+					if (get_user_flags(g_iPlayerData[id][ME_victim]) & ADMIN_GIRL)
+					{
+						client_print_color(id, id, "^1[^3ME^1] ^4Tы нaнec ^3%d^4 ypoнa. Paнил дeвyшкy ^3%s^4 в ^3%s^4.", 
+						g_iPlayerData[id][ME_dmg], 
+						player_name, 
+						g_szHitPlaces[g_iPlayerData[id][ME_lasthit]]);
+					}
+					else
+					{
+						client_print_color(id, id, "^1[^3ME^1] ^4Tы нaнec ^3%d^4 ypoнa. Пocлeднee пoпaдaниe ^3%s^4 в ^3%s^4.", g_iPlayerData[id][ME_dmg], 
+						player_name, 
+						g_szHitPlaces[g_iPlayerData[id][ME_lasthit]]);
+					}
 				}
 			}
 		}

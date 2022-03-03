@@ -4,5 +4,6 @@
     "sql_user": "user",
     "sql_password": "password",
     "sql_db": "db",
+	"comment" : "Save type 1 is steam+username, 2 is Steam, 3 username",
     "save_type": "2"
 }

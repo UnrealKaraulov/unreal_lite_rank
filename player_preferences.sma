@@ -32,7 +32,7 @@ const MAX_KEY_LENGTH = 256;
 const MAX_VALUE_STRING_LENGTH = 1024;
 const MAX_DATA_BUFFER = 102400; // 100KB
 
-new g_sTmpBuf[MAX_DATA_BUFFER], g_sJsonDataBuf[MAX_DATA_BUFFER];
+new g_sTmpBuf[MAX_DATA_BUFFER], g_sJsonDataBuf[MAX_DATA_BUFFER], g_sJsonDataBufEscaped[MAX_DATA_BUFFER];
 new g_sTmpKey[MAX_KEY_LENGTH];
 
 enum sqlx_e {
@@ -53,6 +53,10 @@ enum fwdStruct  {
 new g_eForwards[fwdStruct];
 
 new Handle: g_hTuple;
+
+new Handle: sConnection;
+
+
 new dbdata[sqlx_e];
 
 new bool: g_bConnected[MAX_PLAYERS + 1] = {false,...};
@@ -124,8 +128,6 @@ public read_json()
 
 public sql_test_init() 
 {
-	new Handle: sConnection;
-
 	g_hTuple = SQL_MakeDbTuple(
 		dbdata[host],
 		dbdata[user],
@@ -162,7 +164,6 @@ public sql_test_init()
 	}
 	
 	SQL_FreeHandle(query);
-	SQL_FreeHandle(sConnection);
 }
 
 public plugin_natives() 
@@ -173,6 +174,8 @@ public plugin_natives()
 	register_native("pp_get_float", "native_get_float");
 	register_native("pp_get_bool", "native_get_bool");
 	register_native("pp_get_string", "native_get_string");
+	
+	register_native("pp_get_auth", "native_get_auth");
 
 	register_native("pp_set_number", "native_set_number");
 	register_native("pp_set_float", "native_set_float");
@@ -260,10 +263,10 @@ public Float: native_get_float(plugin, argc)
 		return argc >= arg_default ? get_param_f(arg_default) : 0.0;
 	}
 
-	new value;
+	new Float:value;
 	TrieGetCell(g_tPlayerPreferences[id], g_sTmpKey, value);
 
-	return float(value);
+	return value;
 }
 
 public bool: native_get_bool(plugin, argc)  
@@ -304,7 +307,7 @@ public native_get_string(plugin, argc)
 		arg_default
 	};
 
-	CHECK_NATIVE_ARGS_NUM(argc, 2, 0)
+	CHECK_NATIVE_ARGS_NUM(argc, 4, 0)
 
 	new id = get_param(arg_player);
 	CHECK_NATIVE_PLAYER(id, 0)
@@ -322,6 +325,36 @@ public native_get_string(plugin, argc)
 	}
 
 	return set_string(arg_dest, value, get_param(arg_length));
+}
+
+public native_get_auth(plugin, argc)  
+{
+	enum    
+	{
+		arg_player = 1,
+		arg_dest,
+		arg_length
+	};
+
+	CHECK_NATIVE_ARGS_NUM(argc, 3, 0)
+
+	new id = get_param(arg_player);
+	CHECK_NATIVE_PLAYER(id, 0)
+
+	new g_sTmpBuf[128], szAuth[128];
+	new name[128], hash[128];
+	get_user_name(id,name,charsmax(name))
+	hash_string(name,Hash_Crc32,hash,charsmax(hash));
+	get_user_authid(id, szAuth, charsmax(szAuth));
+
+	if (g_iSaveType == 1)
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "%s-%s", dbdata[table], szAuth, hash);
+	else if (g_iSaveType == 2)
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "%s", dbdata[table], szAuth);
+	else
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "%s", dbdata[table], hash);
+
+	return set_string(arg_dest, g_sTmpBuf, get_param(arg_length));
 }
 
 public native_set_number(plugin, argc)  
@@ -388,7 +421,7 @@ public native_set_float(plugin, argc)
 
 	new Float: value = get_param_f(arg_value);
 	TrieSetCell(g_tPlayerPreferences[id], g_sTmpKey, value);
-	json_object_set_number(g_jObject[id],g_sTmpKey,cell:value);
+	json_object_set_real(g_jObject[id],g_sTmpKey,value);
 	new retval = setValue(id, g_sTmpKey);
 	return retval;
 }
@@ -412,7 +445,7 @@ public native_set_string(plugin, argc)
 	get_string(arg_value, g_sTmpKey, charsmax(g_sTmpKey));
 
 	TrieSetString(g_tPlayerPreferences[id], g_sTmpKey, value);
-	json_object_set_string(g_jObject[id],g_sTmpKey,cell: value);
+	json_object_set_string(g_jObject[id],g_sTmpKey,value);
 	new retval = setValue(id, g_sTmpKey);
 	return retval;
 }
@@ -502,10 +535,10 @@ public Float: native_get_float_global(plugin, argc)
 		return argc >= arg_default ? get_param_f(arg_default) : 0.0;
 	}
 
-	new value;
+	new Float:value;
 	TrieGetCell(g_tPlayerPreferences[id], g_sTmpKey, value);
 
-	return float(value);
+	return value;
 }
 
 public bool: native_get_bool_global(plugin, argc)  
@@ -544,7 +577,7 @@ public native_get_string_global(plugin, argc)
 		arg_default
 	};
 
-	CHECK_NATIVE_ARGS_NUM(argc, 1, 0)
+	CHECK_NATIVE_ARGS_NUM(argc, 3, 0)
 
 	new id = 0;
 	CHECK_NATIVE_PLAYER(id, 0)
@@ -626,7 +659,7 @@ public native_set_float_global(plugin, argc)
 
 	new Float: value = get_param_f(arg_value);
 	TrieSetCell(g_tPlayerPreferences[id], g_sTmpKey, value);
-	json_object_set_number(g_jObject[id],g_sTmpKey,cell: value);
+	json_object_set_real(g_jObject[id],g_sTmpKey, value);
 	new retval = setValue(id, g_sTmpKey);
 	return retval;
 }
@@ -649,7 +682,7 @@ public native_set_string_global(plugin, argc)
 	get_string(arg_value, g_sTmpKey, charsmax(g_sTmpKey));
 
 	TrieSetString(g_tPlayerPreferences[id], g_sTmpKey, value);
-	json_object_set_string(g_jObject[id],g_sTmpKey,cell: value);
+	json_object_set_string(g_jObject[id],g_sTmpKey,value);
 	new retval = setValue(id, g_sTmpKey);
 	return retval;
 }
@@ -723,7 +756,11 @@ save_values(const id)
 	if (id == 0)
 	{
 		json_serial_to_string(g_jObject[id], g_sJsonDataBuf, charsmax(g_sJsonDataBuf));
-		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "REPLACE INTO %s (auth, data) VALUES ('global', '%s')", dbdata[table], g_sJsonDataBuf);
+		
+	
+		SQL_QuoteString(sConnection ,g_sJsonDataBufEscaped, charsmax(g_sJsonDataBufEscaped), g_sJsonDataBuf);
+	
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "REPLACE INTO %s (auth, data) VALUES ('global', '%s')", dbdata[table], g_sJsonDataBufEscaped);
 		new data[2];
 		data[0] = 0;
 		data[1] = -3;
@@ -738,12 +775,14 @@ save_values(const id)
 	get_user_authid(id, auth, charsmax(auth));
 	json_serial_to_string(g_jObject[id], g_sJsonDataBuf, charsmax(g_sJsonDataBuf));
 	
+	SQL_QuoteString(sConnection ,g_sJsonDataBufEscaped, charsmax(g_sJsonDataBufEscaped), g_sJsonDataBuf);
+	
 	if (g_iSaveType == 1)
-		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "REPLACE INTO %s (auth, data) VALUES ('%s-%s', '%s')", dbdata[table], auth, hash, g_sJsonDataBuf);
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "REPLACE INTO %s (auth, data) VALUES ('%s-%s', '%s')", dbdata[table], auth, hash, g_sJsonDataBufEscaped);
 	else if (g_iSaveType == 2)
-		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "REPLACE INTO %s (auth, data) VALUES ('%s', '%s')", dbdata[table], auth, g_sJsonDataBuf);
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "REPLACE INTO %s (auth, data) VALUES ('%s', '%s')", dbdata[table], auth, g_sJsonDataBufEscaped);
 	else 
-		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "REPLACE INTO %s (auth, data) VALUES ('%s', '%s')", dbdata[table], auth, g_sJsonDataBuf);
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "REPLACE INTO %s (auth, data) VALUES ('%s', '%s')", dbdata[table], hash, g_sJsonDataBufEscaped);
 		
 	DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "QUERY SAVE %d: %s",id, g_sTmpBuf);
 
@@ -791,7 +830,7 @@ public load_player(id)
 	else if (g_iSaveType == 2)
 		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "SELECT auth, data FROM %s WHERE auth = '%s'", dbdata[table], szAuth);
 	else
-		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "SELECT auth, data FROM %s WHERE auth = '%s'", dbdata[table], szAuth);
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "SELECT auth, data FROM %s WHERE auth = '%s'", dbdata[table], hash);
 	DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "QUERY LOAD %d: %s",id, g_sTmpBuf);
 	new data[2];
 	data[0] = id;
@@ -838,7 +877,6 @@ public ThreadHandler(failstate, Handle: query, error[], errnum, data[], size, Fl
 
 				DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "[PP] Skipped load from bad format json `auth` = %s", auth);
 			}
-			ExecuteForward(g_eForwards[Fwd_Loaded], _, id);
 		}
 		else 
 		{
@@ -893,8 +931,17 @@ public ThreadHandler(failstate, Handle: query, error[], errnum, data[], size, Fl
 	else 
 	{
 		DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "[PP] No results in query!");
-		ExecuteForward(g_eForwards[Fwd_Loaded], _, id);
 	}
+	
+	new username[33];
+	new username2[64];
+	get_user_name(id,username,charsmax(username));
+	
+	SQL_QuoteString(sConnection ,username2, charsmax(username2), username);
+	
+	TrieSetString(g_tPlayerPreferences[id], "name", username2);
+	json_object_set_string(g_jObject[id],"name", username2);
+	
 	ExecuteForward(g_eForwards[Fwd_Loaded], _, id);
 	return PLUGIN_HANDLED;
 }
@@ -904,5 +951,10 @@ public plugin_end()
 	if (g_hTuple != Empty_Handle) 
 	{
 		SQL_FreeHandle(g_hTuple);
+	}
+	
+	if (sConnection != Empty_Handle)
+	{
+		SQL_FreeHandle(sConnection);
 	}
 }

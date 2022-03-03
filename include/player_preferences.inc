@@ -75,6 +75,19 @@ native pp_clear(const id);
  */
 native pp_get_string(const id, const key[], dest[], const length, const defaultValue[] = "");
 
+
+/**
+ * Gets the value of the specified player auth.
+ *
+ * @param id                Client index
+ * @param dest              Buffer to copy value to
+ * @param length            Maximum buffer size
+ *
+ * @return                  Player auth as stored in db
+ */
+native pp_get_auth(const id, dest[], const length);
+
+
 /**
  * Sets a string value for a player for the specified key.
  *
