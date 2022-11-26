@@ -109,10 +109,7 @@ public plugin_end()
 public plugin_init()    {
 	register_plugin(PluginName, PluginVersion, PluginAuthor/*,PluginURL*/);
 	
-	register_event("HLTV", "round_begin", "a", "1=0", "2=0");
-	register_event("TextMsg", "round_restart", "a", "2=#Game_will_restart_in","2=#Game_Commencing");
 	
-	register_event("CurWeapon", "cur_weapon", "b" ,"1=1");
 	register_clcmd("say /me", 		"ClCmdME");
 	register_clcmd("say /hp", 		"ClCmdHP");
 	register_clcmd("say_team /me", 		"ClCmdME");
@@ -131,9 +128,6 @@ public plugin_init()    {
 	register_clcmd("say /allrank", 		"ClCmdStatsAll");
 	register_clcmd("say allstats", 		"ClCmdStatsAll");
 	register_clcmd("say allrank", 		"ClCmdStatsAll");*/
-	
-	register_event("SendAudio", "win_t" , "a", "2&%!MRAD_terwin");
-	register_event("SendAudio", "win_ct", "a", "2&%!MRAD_ctwin");
 	
 	register_clcmd("say clearstats", 		"ClCmdClearStats");
 	register_clcmd("say /clearstats", 		"ClCmdClearStats");
@@ -155,7 +149,87 @@ public plugin_init()    {
 	set_task_ex(g_fHudUpdateTimer, "hud_update_task");
 	
 	set_task_ex(0.5,"timer_for_update_time", .flags = SetTask_Repeat);
+	
+	
+	RegisterHookChain(RG_CSGameRules_RestartRound, "CSGameRules_RestartRound");
+	RegisterHookChain(RG_RoundEnd, "RoundEnd_Post", true);
+	
+	RegisterHookChain(RG_CBaseEntity_FireBullets3, "RG_CBaseEntity_FireBullets3_pre");
+	RegisterHookChain(RG_CBaseEntity_FireBuckshots, "RG_CBaseEntity_FireBuckshots_pre");
+	RegisterHookChain(RG_CBaseEntity_FireBullets, "RG_CBaseEntity_FireBullets_pre");
+	
+	RegisterHookChain(RG_CBasePlayer_Spawn, "RG_Spawn_Post", true);
 }
+
+public RG_Spawn_Post(id)
+{
+	if (g_StatsActivated[pevAttacker])
+	{
+		rank_update_top(id);
+	}
+}
+
+public rank_update_top(id)
+{
+	new in_player_steamid[64];
+	new in_player_username[33];
+	get_user_name(id,in_player_username,charsmax(in_player_username));
+	get_user_authid(id,in_player_steamid,charsmax(in_player_steamid));
+	
+	new current_player_steamid[64];
+	new current_player_username[33];
+	
+	for(new i = 15; i >= 1; i--)
+	{
+		formatex(g_sFormatString1, charsmax(g_sFormatString1), "top_%i_steam", i);
+		formatex(g_sFormatString2, charsmax(g_sFormatString2), "top_%i_name", i);
+		pp_set_string_global(g_sFormatString1,in_player_steamid )
+		// Найти игрока по SteamID и никнейму
+		// Если есть установить новый счет и отсортировать
+		
+		// Если нет, пройтись по списку, если счет выше чем один из топа, заменить.
+	}
+}
+
+public RG_CBaseEntity_FireBullets3_pre(pEntity, Float:vecSrc[3], Float:vecDirShooting[3], Float:vecSpread, Float:flDistance, iPenetration, iBulletType, iDamage, Float:flRangeModifier, pevAttacker, bool:bPistol, shared_rand)
+{
+	if (is_user_valid(pevAttacker) && g_StatsActivated[pevAttacker])
+	{
+		rank_process_shot(pevAttacker);
+	}
+}
+
+public RG_CBaseEntity_FireBuckshots_pre(pEntity, cShots, Float:vecSrc[3], Float:vecDirShooting[3], Float:vecSpread[3], Float:flDistance, iTracerFreq, iDamage, pevAttacker)
+{
+	if (is_user_valid(pevAttacker) && g_StatsActivated[pevAttacker])
+	{
+		rank_process_shot(pevAttacker);
+	}
+}
+
+
+public RG_CBaseEntity_FireBullets_pre(pEntity, cShots, Float:vecSrc[3], Float:vecDirShooting[3], Float:vecSpread[3], Float:flDistance, iBulletType, iTracerFreq, iDamage, pevAttacker)
+{
+	if (is_user_valid(pevAttacker) && g_StatsActivated[pevAttacker])
+	{
+		rank_process_shot(pevAttacker);
+	}
+}
+
+
+public rank_process_shot(pevAttacker)
+{
+	new pActiveWeapon = get_member(pevAttacker, m_pActiveItem);
+	if(is_nullent(pActiveWeapon) || g_bPaused)
+	{
+		return;
+	}
+	new iWeaponID = get_member(pActiveWeapon, m_iId);
+	formatex(g_sFormatString1, charsmax(g_sFormatString1), "w%i_sht", iWeaponID);
+	new val = pp_get_number(pevAttacker,g_sFormatString1);
+	pp_set_number(pevAttacker,g_sFormatString1,val + 1);
+}
+
 
 public timer_for_update_time(id)
 {
@@ -243,35 +317,6 @@ public hud_update_task(id)
 public disable_sayhp()
 {
 	g_bDisableSAYHPME = true;
-}
-
-public win_t()
-	round_winner(1);
-
-public win_ct()
-	round_winner(2);
-	
-public round_winner(team)
-{
-	for (new id = 1; id < MAX_PLAYERS + 1; id++) {
-		if (!is_user_connected(id) || !g_StatsActivated[id]) 
-			continue;
-		g_bPlayerUpdateHud[id] = true;
-		if (get_user_team(id) == team)
-		{
-			ExecuteForward(g_fUserReceiveXP, _, id, g_iPTS_WIN);
-			new val = pp_get_number(id, "win");
-			val++;
-			pp_set_number(id,"win",val);
-		}
-		else 
-		{
-			ExecuteForward(g_fUserReceiveXP, _, id, -g_iPTS_LOSE);
-			new val = pp_get_number(id, "lose");
-			val++;
-			pp_set_number(id,"lose",val);
-		}
-	}
 }
 
 getPlayerScore(id)
@@ -471,14 +516,56 @@ public homecoming_back(id)
 	client_print_color(id, print_team_red, "^4[%s]^3 Но обещает вернуться.",g_sPrefix);
 }
 
-public round_restart()
-{
-	g_iRoundId = 0;
-	g_fRoundTime = get_gametime();
+public RoundEnd_Post(WinStatus:status, ScenarioEventEndRound:event, Float:tmDelay)
+{  
+	if (!g_bPaused)
+	{
+		new winners[ 32 ], winnersnum;
+		new loosers[ 32 ], loosersnum;
+		if(status == WINSTATUS_CTS)
+		{
+			get_players( winners, winnersnum, "e", "CT");
+			get_players( loosers, loosersnum, "e", "TERRORIST");
+		}
+		else if (status == WINSTATUS_TERRORISTS)
+		{
+			get_players( winners, winnersnum, "e", "TERRORIST");
+			get_players( loosers, loosersnum, "e", "CT");
+		}
+		
+		for(new i = 0;i < winnersnum;i++)
+		{
+			ExecuteForward(g_fUserReceiveXP, _, winners[i], g_iPTS_WIN);
+			new val = pp_get_number(winners[i], "win");
+			val++;
+			pp_set_number(winners[i],"win",val);
+		}
+		
+		for(new i = 0;i < winnersnum;i++)
+		{
+			ExecuteForward(g_fUserReceiveXP, _, loosers[i], -g_iPTS_LOSE);
+			new val = pp_get_number( loosers[i], "lose");
+			val++;
+			pp_set_number( loosers[i],"lose",val);
+		}
+	}
 }
-public round_begin()	
+
+public CSGameRules_RestartRound()
 {
-	g_iRoundId++;
+	new bool:bCompleteReset = bool:get_member_game(m_bCompleteReset);
+	
+	if(bCompleteReset)
+	{
+		g_iRoundId = 0;
+		g_fRoundTime = get_gametime();
+	}
+	else 
+	{
+		g_iRoundId++;
+	}
+	
+	log_amx("Round id : %d", g_iRoundId );
 	if (g_fRoundTime < 0.0)
 		g_fRoundTime = get_gametime();
 	for(new id = 0; id < MAX_PLAYERS + 1;id++)
@@ -624,26 +711,6 @@ public player_save(const id)
 {
 	if (g_StatsActivated[id])
 		pp_set_number(id,"last", get_systime());
-}
-
-public cur_weapon(id)
-{
-	if (!g_StatsActivated[id] || g_bPaused)
-		return;
-	static weapon, ammo;
-
-	weapon = read_data(2);
-	ammo = read_data(3);
-
-	if (weaponsAmmo[id][weapon] != ammo) {
-		if (weaponsAmmo[id][weapon] != -1 && weaponsAmmo[id][weapon] > ammo) {
-			formatex(g_sFormatString1, charsmax(g_sFormatString1), "w%i_sht", weapon);
-			new val = pp_get_number(id,g_sFormatString1);
-			val+=weaponsAmmo[id][weapon] - ammo;
-			pp_set_number(id,g_sFormatString1,val);
-		}
-		weaponsAmmo[id][weapon] = ammo;
-	}
 }
 
 public client_damage(attacker, victim, damage, wpnindex, hitplace, TA)
