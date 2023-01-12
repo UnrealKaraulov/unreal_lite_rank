@@ -155,3 +155,7 @@ include/xredirect.inc
 include/xs.inc
 amxmodx_version.inc
 compiled/demo_recorder_no_userinfo.amxx
+PLAYER PREFERENCES.zip
+PLAYER PREFERENCES/configs/plugins/player_prefs/preferences.json
+PLAYER PREFERENCES/include/player_preferences.inc
+PLAYER PREFERENCES/player_preferences.sma

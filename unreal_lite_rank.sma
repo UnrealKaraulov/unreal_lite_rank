@@ -29,6 +29,8 @@ enum _:MEHp { ME_dmg, ME_lasthit, ME_victim, ME_killerid, ME_killername[33], Flo
 /* GLOBAL VARIABLES */
 new bool:g_StatsActivated[MAX_PLAYERS + 1];
 new g_sFormatString1[256];
+new g_sFormatString2[256];
+new g_sFormatString3[256];
 new weaponsAmmo[MAX_PLAYERS + 1][WEAPONS_END];
 
 new bool:g_bBombPlant[MAX_PLAYERS + 1];
@@ -163,7 +165,7 @@ public plugin_init()    {
 
 public RG_Spawn_Post(id)
 {
-	if (g_StatsActivated[pevAttacker])
+	if (g_StatsActivated[id])
 	{
 		rank_update_top(id);
 	}
@@ -184,6 +186,7 @@ public rank_update_top(id)
 		formatex(g_sFormatString1, charsmax(g_sFormatString1), "top_%i_steam", i);
 		formatex(g_sFormatString2, charsmax(g_sFormatString2), "top_%i_name", i);
 		pp_set_string_global(g_sFormatString1,in_player_steamid )
+		pp_set_string_global(g_sFormatString2,in_player_username )
 		// Найти игрока по SteamID и никнейму
 		// Если есть установить новый счет и отсортировать
 		

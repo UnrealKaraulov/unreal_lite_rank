@@ -7,9 +7,9 @@
 new bool: DEBUG = false;
 
 public const PluginName[] = "Player preferences";
-public const PluginVersion[] = "1.0.9";
+public const PluginVersion[] = "1.0.10";
 public const PluginAuthor[] = "GM-X Team, cpctrl, karaulov";
-public const PluginURL[] = "https://goldsrc.ru/members/3085/";
+public const PluginURL[] = "";
 
 #define CHECK_NATIVE_ARGS_NUM(%1,%2,%3) \
 	if (%1 < %2) { \
@@ -19,7 +19,7 @@ public const PluginURL[] = "https://goldsrc.ru/members/3085/";
 
 #define CHECK_NATIVE_PLAYER(%1,%2) \
 	if (!g_bConnected[%1]) { \
-		DEBUG && !(is_user_bot(%1) || is_user_hltv(%1)) && log_to_file("PLAYER_PREF_DEBUG.log", "Invalid player %d", %1); \
+		DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "Invalid player %d", %1); \
 		return %2; \
 	}
 	
@@ -56,12 +56,18 @@ new Handle: g_hTuple;
 
 new Handle: sConnection;
 
-
 new dbdata[sqlx_e];
 
 new bool: g_bConnected[MAX_PLAYERS + 1] = {false,...};
+
 new Trie: g_tPlayerPreferences[MAX_PLAYERS + 1];
+
 new JSON: g_jObject[MAX_PLAYERS + 1] = {Invalid_JSON,...};
+
+new g_sUserNames[MAX_PLAYERS + 1][MAX_NAME_LENGTH];
+new g_sUserIps[MAX_PLAYERS + 1][MAX_IP_LENGTH];
+new g_sUserAuths[MAX_PLAYERS + 1][MAX_AUTHID_LENGTH];
+
 new g_iSaveType = 0;
 
 public plugin_init()    
@@ -77,6 +83,30 @@ public plugin_init()
 	
 	sql_test_init();
 	load_player(0);
+}
+
+//public plugin_pause()
+//{
+//
+//}
+
+// При снятии плагина с паузы, отправить все данные в бд
+// И перезагрузить игроков
+public plugin_unpause()
+{
+	if (g_jObject[0] != Invalid_JSON)
+		save_values(0);
+	for(new i = 1; i <= MAX_PLAYERS + 1;i++)
+	{
+		if (g_bConnected[i] && g_jObject[i] != Invalid_JSON)
+		{
+			save_values(i);
+		}
+		if (is_user_connected(i))
+		{
+			client_putinserver(i);
+		}
+	}
 }
 
 public read_json()   
@@ -100,25 +130,17 @@ public read_json()
 		return;
 	}
 
-	new temp[128];
+	json_object_get_string(config, "sql_table", dbdata[table], charsmax(dbdata[table]));
 
-	json_object_get_string(config, "sql_table", temp, charsmax(temp));
-	copy(dbdata[table], charsmax(dbdata[table]), temp);
+	json_object_get_string(config, "sql_host", dbdata[host], charsmax(dbdata[host]));
 
-	json_object_get_string(config, "sql_host", temp, charsmax(temp));
-	copy(dbdata[host], charsmax(dbdata[host]), temp);
+	json_object_get_string(config, "sql_user", dbdata[user], charsmax(dbdata[user]));
 
-	json_object_get_string(config, "sql_user", temp, charsmax(temp));
-	copy(dbdata[user], charsmax(dbdata[user]), temp);
+	json_object_get_string(config, "sql_password", dbdata[pass], charsmax(dbdata[pass]));
 
-	json_object_get_string(config, "sql_password", temp, charsmax(temp));
-	copy(dbdata[pass], charsmax(dbdata[pass]), temp);
-
-	json_object_get_string(config, "sql_db", temp, charsmax(temp));
-	copy(dbdata[db], charsmax(dbdata[db]), temp);
+	json_object_get_string(config, "sql_db", dbdata[db], charsmax(dbdata[db]));
 	
-	json_object_get_string(config, "save_type", temp, charsmax(temp));
-	g_iSaveType = str_to_num(temp);
+	g_iSaveType = json_object_get_number(config, "save_type");
 
 	json_free(config);
 
@@ -341,16 +363,14 @@ public native_get_auth(plugin, argc)
 	new id = get_param(arg_player);
 	CHECK_NATIVE_PLAYER(id, 0)
 
-	new g_sTmpBuf[128], szAuth[128];
-	new name[128], hash[128];
-	get_user_name(id,name,charsmax(name))
-	hash_string(name,Hash_Crc32,hash,charsmax(hash));
-	get_user_authid(id, szAuth, charsmax(szAuth));
+	new g_sTmpBuf[128];
+	new hash[128];
+	hash_string(g_sUserNames[id],Hash_Crc32,hash,charsmax(hash));
 
 	if (g_iSaveType == 1)
-		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "%s-%s", dbdata[table], szAuth, hash);
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "%s-%s", dbdata[table], g_sUserAuths[id], hash);
 	else if (g_iSaveType == 2)
-		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "%s", dbdata[table], szAuth);
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "%s", dbdata[table], g_sUserAuths[id]);
 	else
 		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "%s", dbdata[table], hash);
 
@@ -689,9 +709,11 @@ public native_set_string_global(plugin, argc)
 
 public setValue(const id, const g_sTmpKey[])    
 {
-	new fwReturn;
-	ExecuteForward(g_eForwards[Fwd_KeyChanged], fwReturn, id, g_sTmpKey);
-
+	new fwReturn = PLUGIN_HANDLED;
+	if (g_bConnected[id])
+	{
+		ExecuteForward(g_eForwards[Fwd_KeyChanged], fwReturn, id, g_sTmpKey);
+	}
 	if (g_hTuple == Empty_Handle || fwReturn == PLUGIN_HANDLED) 
 	{
 		return -1;
@@ -707,6 +729,11 @@ public client_putinserver(id)
 		g_bConnected[id] = false;
 		return;
 	}
+	
+	get_user_name(id,g_sUserNames[id],charsmax(g_sUserNames[]))
+	get_user_authid(id, g_sUserAuths[id], charsmax(g_sUserAuths[]));
+	get_user_ip(id, g_sUserIps[id], charsmax(g_sUserIps[]),true);
+	
 	load_player(id);
 	if (g_jObject[0] == Invalid_JSON)
 		load_player(0);
@@ -746,18 +773,15 @@ save_values(const id)
 		return;
 	}
 	
-	if (!g_bConnected[id])
+	if (g_bConnected[id])
 	{
-		return;
+		ExecuteForward(g_eForwards[Fwd_PreSaving], _, id);
 	}
-	
-	ExecuteForward(g_eForwards[Fwd_PreSaving], _, id);
 
 	if (id == 0)
 	{
 		json_serial_to_string(g_jObject[id], g_sJsonDataBuf, charsmax(g_sJsonDataBuf));
 		
-	
 		SQL_QuoteString(sConnection ,g_sJsonDataBufEscaped, charsmax(g_sJsonDataBufEscaped), g_sJsonDataBuf);
 	
 		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "REPLACE INTO %s (auth, data) VALUES ('global', '%s')", dbdata[table], g_sJsonDataBufEscaped);
@@ -768,19 +792,16 @@ save_values(const id)
 		return;
 	}
 
-	new auth[128];
-	new name[128], hash[128];
-	get_user_name(id,name,charsmax(name))
-	hash_string(name,Hash_Crc32,hash,charsmax(hash));
-	get_user_authid(id, auth, charsmax(auth));
+	new hash[128];
+	hash_string(g_sUserNames[id],Hash_Crc32,hash,charsmax(hash));
 	json_serial_to_string(g_jObject[id], g_sJsonDataBuf, charsmax(g_sJsonDataBuf));
 	
 	SQL_QuoteString(sConnection ,g_sJsonDataBufEscaped, charsmax(g_sJsonDataBufEscaped), g_sJsonDataBuf);
 	
 	if (g_iSaveType == 1)
-		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "REPLACE INTO %s (auth, data) VALUES ('%s-%s', '%s')", dbdata[table], auth, hash, g_sJsonDataBufEscaped);
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "REPLACE INTO %s (auth, data) VALUES ('%s-%s', '%s')", dbdata[table], g_sUserAuths[id], hash, g_sJsonDataBufEscaped);
 	else if (g_iSaveType == 2)
-		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "REPLACE INTO %s (auth, data) VALUES ('%s', '%s')", dbdata[table], auth, g_sJsonDataBufEscaped);
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "REPLACE INTO %s (auth, data) VALUES ('%s', '%s')", dbdata[table], g_sUserAuths[id], g_sJsonDataBufEscaped);
 	else 
 		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "REPLACE INTO %s (auth, data) VALUES ('%s', '%s')", dbdata[table], hash, g_sJsonDataBufEscaped);
 		
@@ -818,23 +839,20 @@ public load_player(id)
 		DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "QUERY LOAD GLOBAL %d: %s",id, g_sTmpBuf);
 		return;
 	}
-
-	new g_sTmpBuf[128], szAuth[128];
-	new name[128], hash[128];
-	get_user_name(id,name,charsmax(name))
-	hash_string(name,Hash_Crc32,hash,charsmax(hash));
-	get_user_authid(id, szAuth, charsmax(szAuth));
+	
+	new hash[128];
+	hash_string(g_sUserNames[id],Hash_Crc32,hash,charsmax(hash));
 
 	if (g_iSaveType == 1)
-		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "SELECT auth, data FROM %s WHERE auth = '%s-%s'", dbdata[table], szAuth, hash);
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "SELECT auth, data FROM %s WHERE auth = '%s-%s'", dbdata[table], g_sUserAuths[id], hash);
 	else if (g_iSaveType == 2)
-		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "SELECT auth, data FROM %s WHERE auth = '%s'", dbdata[table], szAuth);
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "SELECT auth, data FROM %s WHERE auth = '%s'", dbdata[table], g_sUserAuths[id]);
 	else
 		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "SELECT auth, data FROM %s WHERE auth = '%s'", dbdata[table], hash);
 	DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "QUERY LOAD %d: %s",id, g_sTmpBuf);
 	new data[2];
 	data[0] = id;
-	data[1] = get_user_userid(id);
+	data[1] = 1;
 	SQL_ThreadQuery(g_hTuple, "ThreadHandler", g_sTmpBuf, data, sizeof data);
 }
 
@@ -852,14 +870,6 @@ public ThreadHandler(failstate, Handle: query, error[], errnum, data[], size, Fl
 	}
 
 	new id = data[0];
-
-	CHECK_NATIVE_PLAYER(id, PLUGIN_HANDLED)
-
-	if (data[1] != -2 && get_user_userid(id) != data[1]) 
-	{
-		log_to_file("PLAYER_PREF_DEBUG.log","[PP] Userid %d != Pushed userid %d", get_user_userid(id), data[1]);
-		return PLUGIN_HANDLED;
-	}
 
 	if (SQL_NumResults(query))  
 	{
@@ -933,16 +943,16 @@ public ThreadHandler(failstate, Handle: query, error[], errnum, data[], size, Fl
 		DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "[PP] No results in query!");
 	}
 	
-	new username[33];
 	new username2[64];
-	get_user_name(id,username,charsmax(username));
-	
-	SQL_QuoteString(sConnection ,username2, charsmax(username2), username);
+	SQL_QuoteString(sConnection ,username2, charsmax(username2), g_sUserNames[id]);
 	
 	TrieSetString(g_tPlayerPreferences[id], "name", username2);
 	json_object_set_string(g_jObject[id],"name", username2);
 	
-	ExecuteForward(g_eForwards[Fwd_Loaded], _, id);
+	if (g_bConnected[id])
+	{
+		ExecuteForward(g_eForwards[Fwd_Loaded], _, id);
+	}
 	return PLUGIN_HANDLED;
 }
 
