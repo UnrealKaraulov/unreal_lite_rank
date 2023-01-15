@@ -7,7 +7,7 @@
 new bool: DEBUG = false;
 
 public const PluginName[] = "Player preferences";
-public const PluginVersion[] = "1.0.12";
+public const PluginVersion[] = "1.0.13";
 public const PluginAuthor[] = "GM-X Team, cpctrl, karaulov";
 public const PluginURL[] = "";
 
@@ -761,7 +761,7 @@ save_values(const id)
 		
 		SQL_QuoteString(sConnection ,g_sJsonDataBufEscaped, charsmax(g_sJsonDataBufEscaped), g_sJsonDataBuf);
 	
-		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "REPLACE INTO `%s` (`auth`, `data`) VALUES ('global', '%s')", dbdata[table], g_sJsonDataBufEscaped);
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "INSERT INTO `%s` (`auth`, `data`) VALUES ('global', '%s') ON DUPLICATE KEY UPDATE `data`='%s'", dbdata[table], g_sJsonDataBufEscaped,g_sJsonDataBufEscaped);
 		new data[2];
 		data[0] = 0;
 		data[1] = -3;
@@ -776,11 +776,11 @@ save_values(const id)
 	SQL_QuoteString(sConnection ,g_sJsonDataBufEscaped, charsmax(g_sJsonDataBufEscaped), g_sJsonDataBuf);
 	
 	if (g_iSaveType == 1)
-		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "REPLACE INTO `%s` (`auth`, `data`) VALUES ('%s-%s', '%s')", dbdata[table], g_sUserAuths[id], hash, g_sJsonDataBufEscaped);
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "INSERT INTO `%s` (`auth`, `data`) VALUES ('%s-%s', '%s') ON DUPLICATE KEY UPDATE `data`='%s'", dbdata[table], g_sUserAuths[id], hash, g_sJsonDataBufEscaped, g_sJsonDataBufEscaped);
 	else if (g_iSaveType == 2)
-		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "REPLACE INTO `%s` (`auth`, `data`) VALUES ('%s', '%s')", dbdata[table], g_sUserAuths[id], g_sJsonDataBufEscaped);
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "INSERT INTO `%s` (`auth`, `data`) VALUES ('%s', '%s') ON DUPLICATE KEY UPDATE `data`='%s'", dbdata[table], g_sUserAuths[id], g_sJsonDataBufEscaped, g_sJsonDataBufEscaped);
 	else 
-		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "REPLACE INTO `%s` (`auth`, `data`) VALUES ('%s', '%s')", dbdata[table], hash, g_sJsonDataBufEscaped);
+		formatex(g_sTmpBuf, charsmax(g_sTmpBuf), "INSERT INTO `%s` (`auth`, `data`) VALUES ('%s', '%s') ON DUPLICATE KEY UPDATE `data`='%s'", dbdata[table], hash, g_sJsonDataBufEscaped, g_sJsonDataBufEscaped);
 		
 	DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "QUERY SAVE %d: %s",id, g_sTmpBuf);
 

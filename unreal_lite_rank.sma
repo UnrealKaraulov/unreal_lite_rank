@@ -24,7 +24,7 @@ public stock const PluginURL[] = "https://";
 
 enum _:MEHp { ME_dmg, ME_lasthit, ME_victim, ME_killerid, ME_killername[33], Float:ME_distance, Float:ME_hpkiller, Float:ME_apkiller };
 
-#define MAGIC_NUMBER -9999
+#define UNREAL_MAGIC_NUMBER -9999
 
 /* GLOBAL VARIABLES */
 new bool:g_StatsActivated[MAX_PLAYERS + 1];
@@ -167,11 +167,11 @@ public RG_Spawn_Post(id)
 {
 	if (g_StatsActivated[id])
 	{
-		rank_update_top(id);
+		rank_update_top15(id);
 	}
 }
 
-public rank_update_top(id)
+public rank_update_top15(id)
 {
 	new in_player_steamid[64];
 	new in_player_username[33];
@@ -280,8 +280,8 @@ public hud_update_task(id)
 				skillid = g_iSkillId - 1;
 			skillscore = getPlayerScoreSkill(pid);
 			
-			if (score == MAGIC_NUMBER) score = 0;
-			if (skillscore == MAGIC_NUMBER) skillscore = 0;
+			if (score == UNREAL_MAGIC_NUMBER) score = 0;
+			if (skillscore == UNREAL_MAGIC_NUMBER) skillscore = 0;
 				
 			get_user_name(pid,username,charsmax(username));
 			set_hudmessage(0, 80, 220, g_fHudPos[0], g_fHudPos[1], 0, 0.0, g_fHudUpdateTimer + 0.10, 0.0, 0.0)
@@ -326,7 +326,7 @@ getPlayerScore(id)
 {
 	if (!is_user_valid(id) || !g_StatsActivated[id])
 	{
-		return MAGIC_NUMBER;
+		return UNREAL_MAGIC_NUMBER;
 	}
 	
 	if (g_fCurrentTime - g_fCacheScoreTime[id] < g_fStatsCacheClearTime)
@@ -362,7 +362,7 @@ getPlayerScoreSkill(id)
 {
 	if (!is_user_valid(id) || !g_StatsActivated[id])
 	{
-		return MAGIC_NUMBER;
+		return UNREAL_MAGIC_NUMBER;
 	}
 	
 	if (g_fCurrentTime - g_fCacheSkillsTime[id] < g_fStatsCacheClearTime)
@@ -399,7 +399,7 @@ getPlayerLvl(id)
 {
 	new last_success_lvl = g_iLevelId - 1;
 	new pl_score = getPlayerScore(id);
-	if (pl_score != MAGIC_NUMBER)
+	if (pl_score != UNREAL_MAGIC_NUMBER)
 	{
 		if (g_iPlayerStartRank[id] == -1)
 			g_iPlayerStartRank[id] = pl_score;
@@ -419,7 +419,7 @@ getPlayerSkill(id)
 {
 	new last_success_lvl = g_iSkillId - 1;
 	new pl_score = getPlayerScoreSkill(id);
-	if (pl_score != MAGIC_NUMBER)
+	if (pl_score != UNREAL_MAGIC_NUMBER)
 	{
 		if (g_iPlayerStartSkill[id] == -1)
 			g_iPlayerStartSkill[id] = pl_score;
