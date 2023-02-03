@@ -7,7 +7,7 @@
 new bool: DEBUG = false;
 
 public const PluginName[] = "Player preferences";
-public const PluginVersion[] = "1.0.13";
+public const PluginVersion[] = "1.0.14";
 public const PluginAuthor[] = "GM-X Team, cpctrl, karaulov";
 public const PluginURL[] = "";
 
@@ -702,6 +702,7 @@ public client_putinserver(id)
 	DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "User putinserver %d",id);
 	if (is_user_hltv(id) || is_user_bot(id))    
 	{
+		g_jObject[id] = Invalid_JSON;
 		g_bConnected[id] = false;
 		return;
 	}
@@ -725,7 +726,7 @@ public client_disconnected(id)
 	
 	CHECK_PLAYER(id)
 	
-	if (id != 0)
+	if (id != 0 && g_jObject[id] != Invalid_JSON)
 		save_values(id);
 	DEBUG && log_to_file("PLAYER_PREF_DEBUG.log", "User disconnect END %d",id);
 }
